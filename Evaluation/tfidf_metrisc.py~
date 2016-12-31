@@ -1,0 +1,109 @@
+"""
+TF-IDF evaluation metrics for dialogue.
+
+This method implements two evaluation metrics:
+1) term-frequency cosine similarity between target utterance and model utterance
+2) term-frequency inverse-document-frequency cosine similarity between target utterance and model utterance, where each dialogue corresponds to one document and where the inverse-document-frequency is given by ...
+
+We believe that these metrics are suitable for evaluating how well dialogue systems stay on topic.
+
+Example run:
+
+    python tfidf_metrics.py path_to_ground_truth.txt path_to_predictions.txt path_to_dictionary.pkl
+
+The script assumes one example per line (e.g. one dialogue or one sentence per line), where line n in 'path_to_ground_truth.txt' matches that of line n in 'path_to_predictions.txt'.
+
+"""
+__docformat__ = 'restructedtext en'
+__authors__ = ("Iulian Vlad Serban")
+
+import numpy as np
+import argparse
+
+def tf(fileone, filetwo, w2v):
+    r1 = f1.readlines()
+    r2 = f2.readlines()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('ground_truth', help="ground truth text file, one example per line")
+    parser.add_argument('predicted', help="predicted text file, one example per line")
+    parser.add_argument('dictionary', help="dictionary pickle file")
+
+    args = parser.parse_args()
+
+    print "loading dictionary file..."
+    raw_dict = cPickle.load(open(args.dictionary, 'r'))
+    document_freq = dict([(tok, df) for tok, _, _, df in raw_dict])
+    document_count = np.max(document_freq)
+    print 'document_count', document_count
+
+    print "precomputing inverse-document-frequency values..."
+    inverse_document_freq_squared = {}
+    for word in document_freq.keys():
+        inverse_document_freq_squared[word] = (math.log(document_count/max(1, document_freq[word_index])))**2
+
+    print "loading ground truth utterances..."
+    gt_utterances = open(args.ground_truth, 'r')
+    print "loading model utterances..."
+    model_utterances = open(args.predicted, 'r')
+
+    assert len(gt_utterances) == len(model_utterances)
+
+    print "computing TF and TF-IDF scores..."
+
+    tf_scores = []
+    tfidf_scores = []
+
+    for idx in range(len(gt_utterances)):
+        if idx % 1000 == 0:
+            print '   example ', idx
+
+        gt_utterance = gt_utterances[idx].strip()
+        model_utterance = model_utterances[idx].strip()
+
+        # We don't count empty targets,
+        # since these would always give cosine similarity one with empty responses!
+        if len(gt_utterance) == 0:
+            continue
+
+        gt_utterance_words = gt_utterance.split()
+        model_utterance_words = model_utterance.split()
+
+        # Compute target vector
+        #tf_target_vector = numpy.zeros((len(gt_utterance_words)))
+        #tfidx_target_vector = numpy.zeros((len(gt_utterance_words)))
+
+        tf_target_norm = 0.0
+        tfidf_target_norm = 0.0
+        for wrd_idx, word in enumerate(gt_utterance_words):
+            tf_target_norm += 1.0
+            tfidf_target_norm += inverse_document_freq_squared[word]
+
+
+        tf_dot = 0.0
+        tfidf_dot = 0.0
+
+        tf_model_norm = 0.0
+        tfidf_model_norm = 0.0
+        for wrd_idx, word in enumerate(model_utterance_words):
+            tf_model_norm += 1.0
+            tfidf_model_norm += inverse_document_freq_squared[word]
+
+            if word in gt_utterance_words:
+                tf_dot += 1.0
+                tfidf_dot += inverse_document_freq_squared[word]
+
+        tf_score = tf_dot / (numpy.sqrt(tf_target_norm) * numpy.sqrt(tf_model_norm))
+        tfidf_score = tfidf_dot / (numpy.sqrt(tfidf_target_norm) * numpy.sqrt(tfidf_model_norm))
+
+
+        tf_scores.append(tf_score)
+        tfidf_scores.append(tfidf_score)
+
+    tf_scores = np.asarray(tf_scores)
+    tfidf_scores = np.asarray(tfidf_scores)
+
+    print("TF Score: %f +/- %f " %(r[0], r[1]))
+

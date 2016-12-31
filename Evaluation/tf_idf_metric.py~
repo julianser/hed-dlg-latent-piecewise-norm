@@ -1,0 +1,70 @@
+"""
+TF-IDF evaluation metrics for dialogue.
+
+This method implements two evaluation metrics:
+1) term-frequency cosine similarity between target utterance and model utterance
+2) term-frequency inverse-document-frequency cosine similarity between target utterance and model utterance, where each dialogue corresponds to one document and where the inverse-document-frequency is given by ...
+
+We believe that these metrics are suitable for evaluating how well dialogue systems stay on topic.
+
+Example run:
+
+    python tfidf_metrics.py path_to_ground_truth.txt path_to_predictions.txt path_to_dictionary.pkl
+
+The script assumes one example per line (e.g. one dialogue or one sentence per line), where line n in 'path_to_ground_truth.txt' matches that of line n in 'path_to_predictions.txt'.
+
+"""
+__docformat__ = 'restructedtext en'
+__authors__ = ("Iulian Vlad Serban")
+
+import numpy as np
+import argparse
+
+def tf(fileone, filetwo, w2v):
+    r1 = f1.readlines()
+    r2 = f2.readlines()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('ground_truth', help="ground truth text file, one example per line")
+    parser.add_argument('predicted', help="predicted text file, one example per line")
+    parser.add_argument('dictionary', help="dictionary pickle file")
+
+    args = parser.parse_args()
+
+    print "loading dictionary file..."
+    raw_dict = cPickle.load(open(args.dictionary, 'r'))
+    document_freq = dict([(tok_id, df) for _, tok_id, _, df in raw_dict])
+
+    gt_utterances = open(args.ground_truth, 'r')
+    model_utterances = open(args.predicted, 'r')
+
+    assert len(gt_utterances) == len(model_utterances)
+
+    tf_scores = []
+    tfidf_scores = []
+
+    for idx in range(len(gt_utterances)):
+        gt_utterance = gt_utterances[idx]
+        model_utterance = model_utterances[idx]
+
+
+
+    w2v = Word2Vec.load_word2vec_format(args.embeddings, binary=True)
+
+    r = average(args.ground_truth, args.predicted, w2v)
+    print("Embedding Average Score: %f +/- %f " %(r[0], r[1]))
+
+    r = greedy_match(args.ground_truth, args.predicted, w2v)
+    print("Greedy Matching Score: %f +/- %f " %(r[0], r[1]))
+
+    r = extrema_score(args.ground_truth, args.predicted, w2v)
+    print("Extrema Score: %f +/- %f " %(r[0], r[1]))
+
+
+
+
+    scores = np.asarray(scores)
+    return np.mean(scores), np.std(scores)
+
