@@ -6180,8 +6180,9 @@ def prototype_ubuntu_GaussPiecewise_NormOp_VHRED_Exp6():
 ###    The original Skip-Thought Vector model only shared the non-linear transformation applied to
 ###    the GRU hidden states word embedding output matrix (the GRUs had different parameters).
 ### 2. In the original Skip-Thought Vector model, examples for the context and both the
-###    forward and backward decoder were given at the same time. In our model one may come a few batches
-###    after another one.
+###    forward and backward decoder targets were given at the same time. In our model this order
+###    is not preserved. Our data iterator only enforces that two adjacent sentences are
+###    given to the model in the same batch most of the time.
 ### 3. In our model, we compute the output probablities in the decoder by applying a linear transformation
 ###    to both the GRU decoder hidden state and the utterance encoder hidden state. In the original
 ###    Skip-Thought Vector model, the linear transformation is only applied on the GRU decoder hidden state.
