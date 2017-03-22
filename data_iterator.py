@@ -164,8 +164,8 @@ def modify_batch_policy_gradient(state, batch, random_sampler):
         if samples[0].shape[1] > longest_sample: longest_sample = samples[0].shape[1]
     
     # Pad the batches with zeros if the new context is longer.
-    if longest_sample + longest_context > batch['max_length']:
-        max_length = longest_context + longest_sample
+    if longest_sample + longest_context + 1 > batch['max_length']:
+        max_length = longest_context + longest_sample + 1
         diff = max_length - batch['max_length']
         batch['x'] = np.pad(batch['x'], ((0,diff), (0,0)), 'constant')
         batch['x_reversed'] = np.pad(batch['x_reversed'], ((0,diff), (0,0)), 'constant')
