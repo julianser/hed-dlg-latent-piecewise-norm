@@ -103,6 +103,97 @@ def add_random_variables_to_batch(state, rng, batch, prev_batch, evaluate_mode):
 
     return batch
 
+def modify_batch_policy_gradient(state, batch, random_sampler):
+    with open('/home/ml/mnosew1/tmp/orig_batch.pkl', 'wb') as handle:
+        cPickle.dump(batch, handle)
+    batch = copy.deepcopy(batch)
+    # Count number of turns in each dialogue and randomly generate a context.
+    n_turns = np.sum(batch['x'] == state['eos_sym'], axis=0)
+    # Make sure the context will have at least one turn in it and includes the true response.
+    cutoff_turns = (np.random.uniform(size=batch['x'].shape[1])*(n_turns-3)+1).astype('int')
+
+    cutoff_ix =[]
+
+    context_text = []
+    gt_response_text = []
+
+    with open('/home/ml/mnosew1/data/twitter/hred/TwitterTrain.dict.pkl', 'rb') as handle:
+        raw_dict = cPickle.load(handle)
+
+    # Used for testing.
+    lookup = dict([(tok_id, tok) for tok, tok_id, freq, _ in raw_dict])
+    def convert(seq):
+        words = []
+        for w_ix in seq:
+            words.append(lookup[w_ix])
+        return words
+
+    idx_to_str = convert 
+    #idx_to_str = random_sampler.model.indices_to_words
+    for jx in xrange(0, batch['x'].shape[1]):
+        eos_ix = np.where(batch['x'][:,jx] == state['eos_sym'])[0]
+        ix = eos_ix[cutoff_turns[jx]]
+        ix_end = eos_ix[cutoff_turns[jx]+1]
+        cutoff_ix.append(ix)
+
+        # Convert the true context and response to text for the scoring function.
+        context_text.append(' '.join(idx_to_str(batch['x'][1:ix, jx])))
+        gt_response_text.append(' '.join(idx_to_str(batch['x'][(ix+1):(ix_end), jx])))
+
+        # Edit the contexts (remove remainder and update mask).
+        batch['x'][(ix+1):, jx] = 0
+        batch['x_reversed'][(ix+1):, jx] = 0
+        batch['x_mask'][(ix+1):, jx] = 0
+
+    with open('/home/ml/mnosew1/tmp/context_batch.pkl', 'wb') as handle:
+        cPickle.dump(batch, handle)
+
+    samples, costs = random_sampler.sample(context_text, n_samples=1, n_turns=1, return_words=False)
+    with open('/home/ml/mnosew1/tmp/samples.pkl', 'wb') as handle:
+        cPickle.dump((samples, costs), handle)
+
+    #with open('/home/ml/mnosew1/tmp/samples.pkl', 'rb') as handle:
+    #    samples, costs = cPickle.load(handle)
+
+    # TODO: Score the true and generated responses.
+
+    # Check if sample results is longer max_length.
+    longest_sample, longest_context = 0, 0
+    for jx in xrange(0, batch['x'].shape[1]):
+        if cutoff_ix[jx] > longest_context: longest_context = cutoff_ix[jx]+1
+        if samples[0].shape[1] > longest_sample: longest_sample = samples[0].shape[1]
+    
+    # Pad the batches with zeros if the new context is longer.
+    if longest_sample + longest_context > batch['max_length']:
+        max_length = longest_context + longest_sample
+        diff = max_length - batch['max_length']
+        batch['x'] = np.pad(batch['x'], ((0,diff), (0,0)), 'constant')
+        batch['x_reversed'] = np.pad(batch['x_reversed'], ((0,diff), (0,0)), 'constant')
+        batch['x_mask'] = np.pad(batch['x_mask'], ((0,diff), (0,0)), 'constant')
+        batch['ran_var_uniform_constutterance'] = np.pad(batch['ran_var_uniform_constutterance'], ((0,diff), (0,0), (0,0)), 'constant')
+        batch['ran_var_gaussian_constutterance'] = np.pad(batch['ran_var_gaussian_constutterance'], ((0,diff), (0,0), (0,0)), 'constant')
+        batch['max_length'] = max_length
+    # Update batches to include generated responses.
+    print len(samples)
+    for jx, ix in enumerate(cutoff_ix):
+        #if jx == 10:break
+        #print jx
+        s, n = samples[jx], samples[jx].shape[1]
+        batch['x'][(ix+1):(ix+1+n), jx] = s
+        batch['x'][(ix+1+n), jx] = state['eos_sym']
+        batch['x_reversed'][(ix+1):(ix+1+n), jx] = s[0][::-1]
+        batch['x_reversed'][(ix+1+n), jx] = state['eos_sym']
+        batch['x_mask'][:, jx] = 0
+        # Only decode the string scored by the evaluation function.
+        batch['x_mask'][(ix+1):(ix+2+n), jx] = 1
+
+    with open('/home/ml/mnosew1/tmp/final_batch.pkl', 'wb') as handle:
+        cPickle.dump(batch, handle)
+
+    with open('/home/ml/mnosew1/tmp/cutoffs.pkl', 'wb') as handle:
+        cPickle.dump((cutoff_turns, cutoff_ix), handle)
+
+    
 
 def create_padded_batch(state, rng, x, force_end_of_utterance_token = False):
     # If flag 'do_generate_first_utterance' is off, then zero out the mask for the first utterance.

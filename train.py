@@ -223,7 +223,7 @@ def main(args):
     train_data, \
     valid_data, = get_train_iterator(state)
     train_data.start()
-
+    
     # Start looping through the dataset
     step = 0
     patience = state['patience'] 
@@ -246,8 +246,8 @@ def main(args):
     batch = None
 
     while (step < state['loop_iters'] and
-            (time.time() - start_time)/60. < state['time_stop'] and
-            patience >= 0):
+        (time.time() - start_time)/60. < state['time_stop'] and
+        patience >= 0):
 
         # Flush to log files
         sys.stderr.flush()
@@ -259,12 +259,17 @@ def main(args):
             for param in model.params:
                 print "%s = %.4f" % (param.name, numpy.sum(param.get_value() ** 2) ** 0.5)
 
-            samples, costs = random_sampler.sample([[]], n_samples=1, n_turns=3)
+            samples, costs = random_sampler.sample([[]], n_samples=1, n_turns=3, return_words=True)
             print "Sampled : {}".format(samples[0])
-
 
         ### Training phase
         batch = train_data.next()
+
+        if state['use_pg']:
+            print 'Batch Info',
+            batch = modify_batch_policy_gradient(state, batch, random_sampler)
+
+            sys.exit(0)
 
         # Train finished
         if not batch:
@@ -294,6 +299,7 @@ def main(args):
         if state['use_nce']:
             y_neg = rng.choice(size=(10, max_length, x_data.shape[1]), a=model.idim, p=model.noise_probs).astype('int32')
             c, kl_divergence_cost, posterior_gaussian_mean_variance = train_batch(x_data, x_data_reversed, y_neg, max_length, x_cost_mask, x_reset, ran_gaussian_const_utterance, ran_uniform_const_utterance, ran_decoder_drop_mask)
+
         else:
 
             latent_piecewise_utterance_variable_approx_posterior_alpha = 0.0
@@ -310,6 +316,7 @@ def main(args):
             elif model.add_latent_piecewise_per_utterance:
                 c, kl_divergence_cost, kl_divergences_between_piecewise_prior_and_posterior = train_batch(x_data, x_data_reversed, max_length, x_cost_mask, x_reset, ran_gaussian_const_utterance, ran_uniform_const_utterance, ran_decoder_drop_mask)
             else:
+                #TODO: Modify the train function to use the score.
                 c = train_batch(x_data, x_data_reversed, max_length, x_cost_mask, x_reset, ran_gaussian_const_utterance, ran_uniform_const_utterance, ran_decoder_drop_mask)
                 kl_divergence_cost = 0.0
 

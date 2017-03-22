@@ -1681,7 +1681,7 @@ class DialogLevelRollLeft(EncoderDecoderBase):
 
     def build_encoder(self, h, x, xmask=None, **kwargs):
         one_step = False
-        if len(kwargs):
+        if len(kwargs):  
             one_step = True
 
         assert not one_step

@@ -64,7 +64,10 @@ def sample_wrapper(sample_logic):
                     #print "Samples {}: {}".format(costs[i], converted_samples[i].encode('utf-8'))
                     logger.info("Samples {}: {}".format(costs[i], converted_samples[i].encode('utf-8')))
 
-            context_samples.append(converted_samples)
+            if kwargs.get('return_words', False):
+                context_samples.append(converted_samples)
+            else:
+                context_samples.append(samples)
             context_costs.append(costs)
 
         return context_samples, context_costs
