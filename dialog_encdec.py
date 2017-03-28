@@ -3152,3 +3152,27 @@ class DialogEncoderDecoder(Model):
         self.beam_hd = T.matrix("beam_hd")
         self.beam_ran_gaussian_cost_utterance = T.matrix('beam_ran_gaussian_cost_utterance')
         self.beam_ran_uniform_cost_utterance = T.matrix('beam_ran_uniform_cost_utterance')
+
+
+class CriticEncoderDecoder():
+    """
+    Should look like the `UtteranceEncoder` class?
+    GRU or LSTM ? gated RNN encoder
+    Operates on hidden states at the word level
+    0) in: part of utterance Y_t, true response Y*, and context C
+    1) encodes part of utterances generated at each step of the Actor Network into real-values fixed-sized vectors: Y_t
+    2) encodes the actual TRUE response that we try to generate into real-valued fixed-sized vector: Y*
+    3) concatenate those two vectors into [Y_t, Y*]
+
+    4) out: Q(a|Y_t, Y*, C) for all action a in Vocabulary --> current estimate
+    4') if training then continue
+
+    5) compute the target : q_t = r_t + sum_{a in Vocab} [p(a|Y_t, C)*Q'(a|Y_t, Y*, C)]
+        with:
+        r_t = ADEM(Y_t, Y*, C) - ADEM(Y_t-1, Y*, C) with Y_t and Y_t-1 being completed by sampling the space of action
+            according to either p(y_t+1 | Y_t, C) or a simple heuristic.
+        p(a|Y_t, C) = probability of emitting action a at position t+1 given previous generation Y_t and context C ~ HRED
+        Q'(a|Y_t, Y*, C) = delayed estimate of Q action value function.
+    6) update weights using gradient:
+    ...
+    """
