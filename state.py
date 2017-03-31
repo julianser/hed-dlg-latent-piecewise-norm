@@ -295,6 +295,7 @@ def prototype_state():
     state['train_iterator_offset'] = 0
     state['train_iterator_reshuffle_count'] = 1
 
+    state['use_pg'] = False
     return state
 
 def prototype_test():
@@ -477,6 +478,42 @@ def prototype_twitter_HRED():
 
     state['qdim_encoder'] = 1000
     state['qdim_decoder'] = 1000
+    state['sdim'] = 1000
+    state['rankdim'] = 400
+
+    state['utterance_decoder_gating'] = 'GRU'
+
+    return state
+
+def prototype_reddit_HRED():
+    state = prototype_state()
+ 
+    # Fill your paths here!
+    state['train_dialogues'] = "/home/ml/mnosew1/data/reddit/Training.dialogues.pkl"
+    state['test_dialogues'] = "/home/ml/mnosew1/data/reddit/Test.dialogues.pkl"
+    state['valid_dialogues'] = "/home/ml/mnosew1/data/reddit/Validation.dialogues.pkl"
+    state['dictionary'] = "/home/ml/mnosew1/data/reddit/Training.dict.pkl"
+    state['save_dir'] = "Output"
+
+    state['max_grad_steps'] = 80
+
+    state['valid_freq'] = 5000
+
+    state['prefix'] = "RedditHRED_"
+    state['updater'] = 'adam'
+
+    state['bidirectional_utterance_encoder'] = True
+
+    state['deep_dialogue_encoder_input'] = True
+    state['deep_utterance_decoder_out'] = True
+
+    state['bs'] = 80 # If out of memory, modify this!
+    state['decoder_bias_type'] = 'all' # Choose between 'first', 'all' and 'selective'
+    state['direct_connection_between_encoders_and_decoder'] = True
+    state['deep_direct_connection'] = False
+
+    state['qdim_encoder'] = 2000
+    state['qdim_decoder'] = 2000
     state['sdim'] = 1000
     state['rankdim'] = 400
 
@@ -6449,5 +6486,394 @@ def prototype_book_SkipThought_NormOp_VAE_Exp6():
     state['decoder_drop_previous_input_tokens_rate'] = 0.75
 
     state['deep_utterance_decoder_input'] = True
+
+    return state
+
+def prototype_reddit_SkipThought_NormOp():
+    state = prototype_state()
+
+    state['end_sym_utterance'] = '</s>'
+
+    state['unk_sym'] = 0 # Unknown word token <unk>
+    state['eos_sym'] = 1 # end-of-utterance symbol </s>
+    state['eod_sym'] = -1 # end-of-dialogue symbol </d>
+    state['first_speaker_sym'] = -1 # first speaker symbol <first_speaker>
+    state['second_speaker_sym'] = -1 # second speaker symbol <second_speaker>
+    state['third_speaker_sym'] = -1 # third speaker symbol <third_speaker>
+    state['minor_speaker_sym'] = -1 # minor speaker symbol <minor_speaker>
+    state['voice_over_sym'] = -1 # voice over symbol <voice_over>
+    state['off_screen_sym'] = -1 # off screen symbol <off_screen>
+    state['pause_sym'] = -1 # pause symbol <pause>
+
+    path = '/home/ml/mnosew1/data/reddit/skip-thought'
+    state['train_dialogues'] = "%s/NewsTraining.dialogues.pkl" % path
+    state['test_dialogues'] = "%s/NewsTest.dialogues.pkl" % path
+    state['valid_dialogues'] = "%s/NewsValidation.dialogues.pkl" % path
+    state['dictionary'] = "%s/NewsTraining.dict.pkl" % path
+
+    state['save_dir'] = "Output"
+
+    state['valid_freq'] = 5000
+
+    state['prefix'] = "Reddit_SkipThought_"
+    state['updater'] = 'adam'
+
+    state['bidirectional_utterance_encoder'] = True
+    state['deep_dialogue_encoder_input'] = False
+    state['deep_utterance_decoder_out'] = True
+
+    state['bs'] = 120
+    state['max_grad_steps'] = 102
+    state['max_len'] = 100
+
+    state['utterance_decoder_gating'] = 'GRU'
+    state['direct_connection_between_encoders_and_decoder'] = True
+    state['disable_dialogue_encoder'] = True
+
+    state['qdim_encoder'] = 1200
+    state['qdim_decoder'] = 2400
+    state['sdim'] = 10
+    state['rankdim'] = 620
+
+    state['do_generate_first_utterance'] = False
+    state['skip_utterance'] = True
+    state['skip_utterance_predict_both'] = True
+
+    # Latent variable configuration
+    state['add_latent_gaussian_per_utterance'] = False
+    state['latent_gaussian_per_utterance_dim'] = 100
+    state['scale_latent_gaussian_variable_variances'] = 0.1
+
+    state['add_latent_piecewise_per_utterance'] = False
+    state['latent_piecewise_per_utterance_dim'] = 100
+    state['latent_piecewise_alpha_variables'] = 3
+    state['scale_latent_piecewise_variable_alpha_use_softplus'] = False
+    state['scale_latent_piecewise_variable_prior_alpha'] = 1.0
+    state['scale_latent_piecewise_variable_posterior_alpha'] = 1.0
+
+    state['condition_latent_variable_on_dialogue_encoder'] = True
+    state['train_latent_variables_with_kl_divergence_annealing'] = True
+    state['kl_divergence_annealing_rate'] = 1.0/75000.0
+    state['decoder_drop_previous_input_tokens'] = True
+    state['decoder_drop_previous_input_tokens_rate'] = 0.75
+
+    state['deep_utterance_decoder_input'] = False
+
+    state['patience'] = 100
+
+    return state
+
+
+def prototype_reddit_SkipThought_NormOp_Baseline_Exp1():
+    state = prototype_reddit_SkipThought_NormOp()
+
+    return state
+
+
+def prototype_reddit_SkipThought_NormOp_Baseline_Exp2():
+    state = prototype_reddit_SkipThought_NormOp()
+    state['deep_utterance_decoder_input'] = True
+
+    return state
+
+
+def prototype_reddit_SkipThought_NormOp_VAE_Exp1():
+    state = prototype_reddit_SkipThought_NormOp()
+
+    # Latent variable configuration
+    state['add_latent_gaussian_per_utterance'] = True
+    state['latent_gaussian_per_utterance_dim'] = 100
+    state['scale_latent_gaussian_variable_variances'] = 0.1
+
+    state['add_latent_piecewise_per_utterance'] = False
+    state['latent_piecewise_per_utterance_dim'] = 100
+    state['latent_piecewise_alpha_variables'] = 3
+    state['scale_latent_piecewise_variable_alpha_use_softplus'] = False
+    state['scale_latent_piecewise_variable_prior_alpha'] = 1.0
+    state['scale_latent_piecewise_variable_posterior_alpha'] = 1.0
+
+    state['condition_latent_variable_on_dialogue_encoder'] = True
+    state['train_latent_variables_with_kl_divergence_annealing'] = True
+    state['kl_divergence_annealing_rate'] = 1.0/75000.0
+    state['decoder_drop_previous_input_tokens'] = True
+    state['decoder_drop_previous_input_tokens_rate'] = 0.75
+
+    state['deep_utterance_decoder_input'] = False
+
+    return state
+
+
+def prototype_reddit_SkipThought_NormOp_VAE_Exp2():
+    state = prototype_reddit_SkipThought_NormOp()
+
+    # Latent variable configuration
+    state['add_latent_gaussian_per_utterance'] = False
+    state['latent_gaussian_per_utterance_dim'] = 100
+    state['scale_latent_gaussian_variable_variances'] = 0.1
+
+    state['add_latent_piecewise_per_utterance'] = True
+    state['latent_piecewise_per_utterance_dim'] = 100
+    state['latent_piecewise_alpha_variables'] = 3
+    state['scale_latent_piecewise_variable_alpha_use_softplus'] = False
+    state['scale_latent_piecewise_variable_prior_alpha'] = 1.0
+    state['scale_latent_piecewise_variable_posterior_alpha'] = 1.0
+
+    state['condition_latent_variable_on_dialogue_encoder'] = True
+    state['train_latent_variables_with_kl_divergence_annealing'] = True
+    state['kl_divergence_annealing_rate'] = 1.0/75000.0
+    state['decoder_drop_previous_input_tokens'] = True
+    state['decoder_drop_previous_input_tokens_rate'] = 0.75
+
+    state['deep_utterance_decoder_input'] = False
+
+    return state
+
+
+def prototype_reddit_SkipThought_NormOp_VAE_Exp3():
+    state = prototype_reddit_SkipThought_NormOp()
+
+    # Latent variable configuration
+    state['add_latent_gaussian_per_utterance'] = True
+    state['latent_gaussian_per_utterance_dim'] = 100
+    state['scale_latent_gaussian_variable_variances'] = 0.1
+
+    state['add_latent_piecewise_per_utterance'] = True
+    state['latent_piecewise_per_utterance_dim'] = 100
+    state['latent_piecewise_alpha_variables'] = 3
+    state['scale_latent_piecewise_variable_alpha_use_softplus'] = False
+    state['scale_latent_piecewise_variable_prior_alpha'] = 1.0
+    state['scale_latent_piecewise_variable_posterior_alpha'] = 1.0
+
+    state['condition_latent_variable_on_dialogue_encoder'] = True
+    state['train_latent_variables_with_kl_divergence_annealing'] = True
+    state['kl_divergence_annealing_rate'] = 1.0/75000.0
+    state['decoder_drop_previous_input_tokens'] = True
+    state['decoder_drop_previous_input_tokens_rate'] = 0.75
+
+    state['deep_utterance_decoder_input'] = False
+
+    return state
+
+
+def prototype_reddit_SkipThought_NormOp_VAE_Exp4():
+    state = prototype_reddit_SkipThought_NormOp()
+
+    # Latent variable configuration
+    state['add_latent_gaussian_per_utterance'] = True
+    state['latent_gaussian_per_utterance_dim'] = 100
+    state['scale_latent_gaussian_variable_variances'] = 0.1
+
+    state['add_latent_piecewise_per_utterance'] = False
+    state['latent_piecewise_per_utterance_dim'] = 100
+    state['latent_piecewise_alpha_variables'] = 3
+    state['scale_latent_piecewise_variable_alpha_use_softplus'] = False
+    state['scale_latent_piecewise_variable_prior_alpha'] = 1.0
+    state['scale_latent_piecewise_variable_posterior_alpha'] = 1.0
+
+    state['condition_latent_variable_on_dialogue_encoder'] = True
+    state['train_latent_variables_with_kl_divergence_annealing'] = True
+    state['kl_divergence_annealing_rate'] = 1.0/75000.0
+    state['decoder_drop_previous_input_tokens'] = True
+    state['decoder_drop_previous_input_tokens_rate'] = 0.75
+
+    state['deep_utterance_decoder_input'] = True
+
+    return state
+
+
+def prototype_reddit_SkipThought_NormOp_VAE_Exp5():
+    state = prototype_reddit_SkipThought_NormOp()
+
+    # Latent variable configuration
+    state['add_latent_gaussian_per_utterance'] = False
+    state['latent_gaussian_per_utterance_dim'] = 100
+    state['scale_latent_gaussian_variable_variances'] = 0.1
+
+    state['add_latent_piecewise_per_utterance'] = True
+    state['latent_piecewise_per_utterance_dim'] = 100
+    state['latent_piecewise_alpha_variables'] = 3
+    state['scale_latent_piecewise_variable_alpha_use_softplus'] = False
+    state['scale_latent_piecewise_variable_prior_alpha'] = 1.0
+    state['scale_latent_piecewise_variable_posterior_alpha'] = 1.0
+
+    state['condition_latent_variable_on_dialogue_encoder'] = True
+    state['train_latent_variables_with_kl_divergence_annealing'] = True
+    state['kl_divergence_annealing_rate'] = 1.0/75000.0
+    state['decoder_drop_previous_input_tokens'] = True
+    state['decoder_drop_previous_input_tokens_rate'] = 0.75
+
+    state['deep_utterance_decoder_input'] = True
+
+    return state
+
+
+def prototype_reddit_SkipThought_NormOp_VAE_Exp6():
+    state = prototype_reddit_SkipThought_NormOp()
+
+    # Latent variable configuration
+    state['add_latent_gaussian_per_utterance'] = True
+    state['latent_gaussian_per_utterance_dim'] = 100
+    state['scale_latent_gaussian_variable_variances'] = 0.1
+
+    state['add_latent_piecewise_per_utterance'] = True
+    state['latent_piecewise_per_utterance_dim'] = 100
+    state['latent_piecewise_alpha_variables'] = 3
+    state['scale_latent_piecewise_variable_alpha_use_softplus'] = False
+    state['scale_latent_piecewise_variable_prior_alpha'] = 1.0
+    state['scale_latent_piecewise_variable_posterior_alpha'] = 1.0
+
+    state['condition_latent_variable_on_dialogue_encoder'] = True
+    state['train_latent_variables_with_kl_divergence_annealing'] = True
+    state['kl_divergence_annealing_rate'] = 1.0/75000.0
+    state['decoder_drop_previous_input_tokens'] = True
+    state['decoder_drop_previous_input_tokens_rate'] = 0.75
+
+    state['deep_utterance_decoder_input'] = True
+
+    return state
+
+def prototype_reddit_HRED_branching_1():
+    state = prototype_state()
+ 
+    # Fill your paths here!
+    state['train_dialogues'] = "/home/ml/mnosew1/data/reddit/branching/NewsTraining1.dialogues.pkl"
+    state['test_dialogues'] = "/home/ml/mnosew1/data/reddit/branching/NewsTesting1.dialogues.pkl"
+    state['valid_dialogues'] = "/home/ml/mnosew1/data/reddit/branching/NewsValidation1.dialogues.pkl"
+    state['dictionary'] = "/home/ml/mnosew1/data/reddit/branching/NewsTraining1.dict.pkl"
+    state['save_dir'] = "Branching1Output"
+
+    state['max_grad_steps'] = 100
+
+    state['valid_freq'] = 5000
+
+    state['prefix'] = "RedditHRED_"
+    state['updater'] = 'adam'
+
+    state['bidirectional_utterance_encoder'] = True
+
+    state['deep_dialogue_encoder_input'] = True
+    state['deep_utterance_decoder_out'] = True
+
+    state['bs'] = 100 # If out of memory, modify this!
+    state['decoder_bias_type'] = 'all' # Choose between 'first', 'all' and 'selective'
+    state['direct_connection_between_encoders_and_decoder'] = True
+    state['deep_direct_connection'] = False
+
+    state['qdim_encoder'] = 2000
+    state['qdim_decoder'] = 2000
+    state['sdim'] = 1000
+    state['rankdim'] = 400
+
+    state['utterance_decoder_gating'] = 'GRU'
+
+    return state
+
+def prototype_reddit_HRED_branching_2():
+    state = prototype_state()
+ 
+    # Fill your paths here!
+    state['train_dialogues'] = "/home/ml/mnosew1/data/reddit/branching/NewsTraining2.dialogues.pkl"
+    state['test_dialogues'] = "/home/ml/mnosew1/data/reddit/branching/NewsTesting2.dialogues.pkl"
+    state['valid_dialogues'] = "/home/ml/mnosew1/data/reddit/branching/NewsValidation2.dialogues.pkl"
+    state['dictionary'] = "/home/ml/mnosew1/data/reddit/branching/NewsTraining1.dict.pkl"
+    state['save_dir'] = "Branching2Output"
+
+    state['max_grad_steps'] = 100
+
+    state['valid_freq'] = 5000
+
+    state['prefix'] = "RedditHRED_"
+    state['updater'] = 'adam'
+
+    state['bidirectional_utterance_encoder'] = True
+
+    state['deep_dialogue_encoder_input'] = True
+    state['deep_utterance_decoder_out'] = True
+
+    state['bs'] = 100 # If out of memory, modify this!
+    state['decoder_bias_type'] = 'all' # Choose between 'first', 'all' and 'selective'
+    state['direct_connection_between_encoders_and_decoder'] = True
+    state['deep_direct_connection'] = False
+
+    state['qdim_encoder'] = 2000
+    state['qdim_decoder'] = 2000
+    state['sdim'] = 1000
+    state['rankdim'] = 400
+
+    state['utterance_decoder_gating'] = 'GRU'
+
+    return state
+
+def prototype_policy_gradient():
+    #state = prototype_state()
+    state = {}
+    # Fill your paths here!
+    #state['train_dialogues'] = "/home/ml/mnosew1/data/twitter/hred/TwitterTrain.dialogues.pkl"
+    #state['test_dialogues'] = "/home/ml/mnosew1/data/twitter/hred/TwitterVal.dialogues.pkl"
+    #state['valid_dialogues'] = "/home/ml/mnosew1/data/twitter/hred/TwitterTest.dialogues.pkl"
+    #state['dictionary'] = "/home/ml/mnosew1/data/twitter/hred/TwitterTrain.dict.pkl"
+    
+    # This should be the same data as the pretrained model.
+    state['train_dialogues'] = "/home/ml/mnosew1/data/twitter/hred_bpe/Train.dialogues.pkl"
+    state['test_dialogues'] = "/home/ml/mnosew1/data/twitter/hred_bpe/Valid.dialogues.pkl"
+    state['valid_dialogues'] = "/home/ml/mnosew1/data/twitter/hred_bpe/Test.dialogues.pkl"
+    state['dictionary'] = "/home/ml/mnosew1/data/twitter/hred_bpe/Dataset.dict.pkl"
+    # This should be the filename prefix for the pretrained model.
+    state['pretrained_prefix'] = '/home/ml/mnosew1/data/twitter/hred_bpe/SavedModel/1474690048.8_TwitterModel'
+    # These parameters will be replaced from the preloaded model.
+    state['save_dir'] = "PG_Output"
+    state['use_pg'] = True
+    state['valid_freq'] = 500
+    state['prefix'] = "PG_"
+    state['bs'] = 100 # If out of memory, modify this!
+
+    # These parameters should be the same as the pretrained model.
+    #state['max_grad_steps'] = 100
+    #state['updater'] = 'adam'
+    #state['bidirectional_utterance_encoder'] = False
+    state['deep_dialogue_encoder_input'] = False
+    state['deep_utterance_decoder_out'] = False
+    #state['decoder_bias_type'] = 'all' # Choose between 'first', 'all' and 'selective'
+    #state['direct_connection_between_encoders_and_decoder'] = True
+    #state['deep_direct_connection'] = False
+    #state['qdim_encoder'] = 200
+    #state['qdim_decoder'] = 200
+    #state['sdim'] = 100
+    #state['rankdim'] = 40
+    #state['utterance_decoder_gating'] = 'GRU'
+
+    return state
+
+def prototype_policy_gradient_toy():
+    state = prototype_state()
+    # Fill your paths here!
+    state['train_dialogues'] = "/home/ml/mnosew1/data/synthetic/digits/Training.dialogues.pkl"
+    state['test_dialogues'] = "/home/ml/mnosew1/data/synthetic/digits/Val.dialogues.pkl"
+    state['valid_dialogues'] = "/home/ml/mnosew1/data/synthetic/digits/Test.dialogues.pkl"
+    state['dictionary'] = "/home/ml/mnosew1/data/synthetic/digits/Training.dict.pkl"
+    
+    # This should be the filename prefix for the pretrained model.
+    state['pretrained_prefix'] = None
+    # These parameters will be replaced from the preloaded model.
+    state['save_dir'] = "PG_Toy_Output"
+    state['use_pg'] = True
+    state['valid_freq'] = 5000
+    state['prefix'] = "PG_"
+    state['bs'] = 100 # If out of memory, modify this!
+
+    # These parameters should be the same as the pretrained model.
+    state['max_grad_steps'] = 100
+    state['updater'] = 'adam'
+    state['bidirectional_utterance_encoder'] = False
+    state['deep_dialogue_encoder_input'] = False
+    state['deep_utterance_decoder_out'] = False
+    state['decoder_bias_type'] = 'all' # Choose between 'first', 'all' and 'selective'
+    state['direct_connection_between_encoders_and_decoder'] = True
+    state['deep_direct_connection'] = False
+    state['qdim_encoder'] = 100
+    state['qdim_decoder'] = 100
+    state['sdim'] = 100
+    state['rankdim'] = 10
+    state['utterance_decoder_gating'] = 'GRU'
 
     return state

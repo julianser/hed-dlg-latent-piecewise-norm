@@ -1832,6 +1832,38 @@ class DialogEncoderDecoder(Model):
         return updates, optimizer_variables
   
     # Batch training function.
+    def build_debug_fn(self):
+        if not hasattr(self, 'debug_fn'):
+
+            self.debug_fn = theano.function(inputs=[self.x_data, self.x_data_reversed, 
+                                                             self.x_max_length,
+                                                             self.x_cost_mask,
+                                                             self.x_reset_mask, 
+                                                             self.ran_gaussian_cost_utterance,
+                                                             self.ran_uniform_cost_utterance,
+                                                             self.x_dropmask,
+                                                             self.returns],
+                                            outputs=[self.target_probs, self.debug_returns, self.training_x_cost_mask_flat, self.debug_training_y, self.debug_training_x, self.debug_target_probs_full],
+                                            on_unused_input='warn', 
+                                            name="debug_fn")
+        return self.debug_fn
+
+    def build_pg_train_function(self):
+        if not hasattr(self, 'train_fn'):
+            self.train_fn = theano.function(inputs=[self.x_data, self.x_data_reversed, 
+                                                             self.x_max_length,
+                                                             self.x_cost_mask,
+                                                             self.x_reset_mask, 
+                                                             self.ran_gaussian_cost_utterance,
+                                                             self.ran_uniform_cost_utterance,
+                                                             self.x_dropmask,
+                                                             self.returns],
+                                                outputs=self.pg_cost,
+                                                updates=self.updates + self.state_updates, 
+                                                on_unused_input='warn', 
+                                                name="train_fn")   
+        return self.train_fn
+
     def build_train_function(self):
         if not hasattr(self, 'train_fn'):
             # Compile functions
@@ -1854,7 +1886,7 @@ class DialogEncoderDecoder(Model):
             elif self.add_latent_gaussian_per_utterance:
                 self.train_fn = theano.function(inputs=[self.x_data, self.x_data_reversed, 
                                                              self.x_max_length,
-                                                             self.x_cost_mask,
+                                                             self_cost_mask,
                                                              self.x_reset_mask, 
                                                              self.ran_gaussian_cost_utterance,
                                                              self.ran_uniform_cost_utterance,
@@ -2442,7 +2474,7 @@ class DialogEncoderDecoder(Model):
         self.ran_uniform_cost_utterance = T.tensor3('ran_uniform_cost_utterance')
         self.x_dropmask = T.matrix('x_dropmask')
 
-
+        self.returns = T.vector('returns')
         
         # The 'x' data (input) is defined as all symbols except the last, and
         # the 'y' data (output) is defined as all symbols except the first.
@@ -2454,6 +2486,11 @@ class DialogEncoderDecoder(Model):
         # Here we find the end-of-utterance tokens in the minibatch.
         training_hs_mask = T.neq(training_x, self.eos_sym)
         training_x_cost_mask = self.x_cost_mask[1:self.x_max_length]
+        #training_returns = self.returns.dimshuffle(0, 'x')
+        #training_returns = T.repeat(self.returns, self.x_max_length-1)
+        training_returns = self.returns
+        self.training_returns = training_returns
+        #training_returns = training_returns.dimshuffle(0, 'x')
         training_x_cost_mask_flat = training_x_cost_mask.flatten()
         
         # Backward compatibility
@@ -2932,6 +2969,12 @@ class DialogEncoderDecoder(Model):
         logger.debug("Build decoder (EVAL)")
         target_probs, self.hd, target_probs_full_matrix, self.utterance_decoder_updates = self.utterance_decoder.build_decoder(self.hd_input, training_x, xmask=training_hs_mask, xdropmask=training_x_dropmask, y=training_y, mode=UtteranceDecoder.EVALUATION, prev_state=self.phd)
 
+        self.target_probs = target_probs
+        self.training_x_cost_mask_flat = training_x_cost_mask_flat
+        self.debug_training_y, self.debug_training_x = training_y, training_x
+        self.debug_target_probs_full = target_probs_full_matrix
+        self.debug_returns = training_returns
+
         # Prediction cost and rank cost
         self.contrastive_cost = T.sum(contrastive_cost.flatten() * training_x_cost_mask_flat)
         self.softmax_cost = -T.log(target_probs) * training_x_cost_mask_flat
@@ -2946,6 +2989,9 @@ class DialogEncoderDecoder(Model):
         self.training_cost = self.softmax_cost_acc
         if self.use_nce:
             self.training_cost = self.contrastive_cost
+
+        if self.state['use_pg']:
+            self.pg_cost = T.sum(-T.log(target_probs) * training_returns * training_x_cost_mask_flat)
 
         # Compute training cost as variational lower bound with possible annealing of KL-divergence term
         if self.add_latent_gaussian_per_utterance or self.add_latent_piecewise_per_utterance:

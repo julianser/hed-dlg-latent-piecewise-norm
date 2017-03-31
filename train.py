@@ -100,6 +100,16 @@ def main(args):
     state = eval(args.prototype)() 
     timings = init_timings() 
 
+    pg_reload = False
+    if state['use_pg'] and not state['pretrained_prefix'] is None:
+        # Reload the parameters and trained model.
+        old_state = cPickle.load(open(state['pretrained_prefix'] + '_state.pkl', 'rb'))
+        for k, v in state.iteritems():
+            old_state[k] = v
+        pg_reload = True
+        args.resume = state['pretrained_prefix']
+        state = old_state
+
     auto_restarting = False
     if args.auto_restart:
         assert not args.save_every_valid_iteration
@@ -136,7 +146,7 @@ def main(args):
 
 
 
-    if args.resume != "":
+    if args.resume != "" and not pg_reload:
         logger.debug("Resuming %s" % args.resume)
         
         state_file = args.resume + '_state.pkl'
@@ -170,7 +180,7 @@ def main(args):
     valid_rounds = 0
     save_model_on_first_valid = False
 
-    if args.resume != "":
+    if args.resume != "" or pg_reload:
         filename = args.resume + '_model.npz'
         if os.path.isfile(filename):
             logger.debug("Loading previous model")
@@ -201,7 +211,11 @@ def main(args):
         model.state['run_id'] = RUN_ID
 
     logger.debug("Compile trainer")
-    if not state["use_nce"]:
+    if state['use_pg']:
+        logger.debug("Training with policy-gradient.")
+        train_batch = model.build_pg_train_function()
+        debug_fn = model.build_debug_fn()
+    elif not state["use_nce"]:
         if ('add_latent_gaussian_per_utterance' in state) and (state["add_latent_gaussian_per_utterance"]):
             logger.debug("Training using variational lower bound on log-likelihood")
         else:
@@ -266,10 +280,16 @@ def main(args):
         batch = train_data.next()
 
         if state['use_pg']:
-            print 'Batch Info',
-            batch = modify_batch_policy_gradient(state, batch, random_sampler)
-
-            sys.exit(0)
+            display = False
+            if step % 5 == 0:
+                display = True
+            batch, scores = modify_batch_policy_gradient(state, batch, random_sampler, display)
+            if batch is None:
+                print 'Invalid batch.'
+                continue
+            with open('/home/ml/mnosew1/tmp/good_batch.pkl', 'wb') as handle:
+                cPickle.dump(batch, handle)
+            print 'Mean Return:', np.mean(scores)
 
         # Train finished
         if not batch:
@@ -299,9 +319,8 @@ def main(args):
         if state['use_nce']:
             y_neg = rng.choice(size=(10, max_length, x_data.shape[1]), a=model.idim, p=model.noise_probs).astype('int32')
             c, kl_divergence_cost, posterior_gaussian_mean_variance = train_batch(x_data, x_data_reversed, y_neg, max_length, x_cost_mask, x_reset, ran_gaussian_const_utterance, ran_uniform_const_utterance, ran_decoder_drop_mask)
-
+        
         else:
-
             latent_piecewise_utterance_variable_approx_posterior_alpha = 0.0
             latent_piecewise_utterance_variable_prior_alpha = 0.0
             kl_divergences_between_piecewise_prior_and_posterior = 0.0
@@ -309,14 +328,23 @@ def main(args):
             latent_piecewise_posterior_sample = 0.0
             posterior_gaussian_mean_variance = 0.0
 
-            if model.add_latent_piecewise_per_utterance and model.add_latent_gaussian_per_utterance:
+            if state['use_pg']:
+                c = train_batch(x_data, x_data_reversed, max_length, x_cost_mask, x_reset, ran_gaussian_const_utterance, ran_uniform_const_utterance, ran_decoder_drop_mask, batch['returns'])
+                d_info = debug_fn(x_data, x_data_reversed, max_length, x_cost_mask, x_reset, ran_gaussian_const_utterance, ran_uniform_const_utterance, ran_decoder_drop_mask, batch['returns'])
+                if (d_info[2] > 1).any():
+                    with open('/home/ml/mnosew1/tmp/debug_rewards.pkl', 'wb') as handle:
+                        cPickle.dump({'batch':batch, 'debug': d_info}, handle)
+                else:
+                    with open('/home/ml/mnosew1/tmp/debug_normal.pkl', 'wb') as handle:
+                        cPickle.dump({'batch':batch, 'debug': d_info}, handle)
+                kl_divergence_cost = 0.0
+            elif model.add_latent_piecewise_per_utterance and model.add_latent_gaussian_per_utterance:
                 c, kl_divergence_cost, posterior_gaussian_mean_variance, latent_piecewise_utterance_variable_approx_posterior_alpha, latent_piecewise_utterance_variable_prior_alpha, kl_divergences_between_piecewise_prior_and_posterior, kl_divergences_between_gaussian_prior_and_posterior, latent_piecewise_posterior_sample = train_batch(x_data, x_data_reversed, max_length, x_cost_mask, x_reset, ran_gaussian_const_utterance, ran_uniform_const_utterance, ran_decoder_drop_mask)
             elif model.add_latent_gaussian_per_utterance:
                 c, kl_divergence_cost, posterior_gaussian_mean_variance, kl_divergences_between_gaussian_prior_and_posterior = train_batch(x_data, x_data_reversed, max_length, x_cost_mask, x_reset, ran_gaussian_const_utterance, ran_uniform_const_utterance, ran_decoder_drop_mask)
             elif model.add_latent_piecewise_per_utterance:
                 c, kl_divergence_cost, kl_divergences_between_piecewise_prior_and_posterior = train_batch(x_data, x_data_reversed, max_length, x_cost_mask, x_reset, ran_gaussian_const_utterance, ran_uniform_const_utterance, ran_decoder_drop_mask)
             else:
-                #TODO: Modify the train function to use the score.
                 c = train_batch(x_data, x_data_reversed, max_length, x_cost_mask, x_reset, ran_gaussian_const_utterance, ran_uniform_const_utterance, ran_decoder_drop_mask)
                 kl_divergence_cost = 0.0
 
