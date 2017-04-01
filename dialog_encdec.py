@@ -3214,3 +3214,768 @@ class DialogEncoderDecoder(Model):
         self.beam_hd = T.matrix("beam_hd")
         self.beam_ran_gaussian_cost_utterance = T.matrix('beam_ran_gaussian_cost_utterance')
         self.beam_ran_uniform_cost_utterance = T.matrix('beam_ran_uniform_cost_utterance')
+
+
+class CriticDecoder(EncoderDecoderBase):
+    """
+    Should look like the `UtteranceEncoder` class?
+    GRU or LSTM ? gated RNN encoder
+    Operates on hidden states at the word level
+
+    Input:
+        context embedding C - from DialogEncoder( UtteranceDecoder(context) )
+        true response embedding Y* - from UtteranceDecoder(true response)
+        sampled response Y - from beam sampler(context)
+        (delayed) sampling distribution P'(w | Y_t, C) - from UtteranceDecoder() --> Tx|Vocab| + batch dimension
+
+        Reward = R = ADEM(Y_t, Y*, C) for all steps Y_t or only for full Y?
+
+    Output:
+        Q(w | Y_t, Y*, C) --> Tx|Vocab| + batch dimension
+
+
+    Target : q_t = R_t + Diagonal( P'(a|Y_t, C) . Q'(a|Y_t, Y*, C) )
+        with:
+        R_t = ADEM(Y_t, Y*, C) - ADEM(Y_t-1, Y*, C) with Y_t and Y_t-1 being completed by sampling the space of action
+            according to either p(y_t+1 | Y_t, C) or a simple heuristic.
+        P'(a|Y_t, C) = probability of emitting action a at position t+1 given previous generation Y_t and context C ~ HRED
+        Q'(a|Y_t, Y*, C) = delayed estimate of Q action value function = current network but with delayed weights
+
+    Stabilize q_t: q_t = q_t - average(ADEM) ??
+
+    Update weights: w <- w + alpha [sum from t=1 to T { (Q(y_t|[Y_t-1,Y*,C]) - q_t)^2 + lambda C_t }]
+        with:
+        C_t as a constraint for actions that are rarely sampled ~ regularization
+        C_t = sum_{a in Vocab} [Q(a|[Y_t-1,Y*,C]) - 1/|Vocab| sum_{b in Vocab}Q(a|[Y_t-1,Y*,C])]^2
+
+    Update delayed weights : w' <- phi*w + (1-phi)*(w')
+
+    ex: of lambda & phi: 0.001 or 0.0001
+    """
+
+    def __init__(self, state, rng, parent, dialog_encoder, word_embedding_param):
+        """
+        Constructor.
+        :param state: set of parameters coming from state.py
+        :param rng: random number generator
+        :param parent: class that called this one ??
+        :param dialog_encoder: DialogEncoder object containing context embedding??
+        :param word_embedding_param: word embeddings
+        """
+        EncoderDecoderBase.__init__(self, state, rng, parent)
+
+        assert (word_embedding_param != None)
+        self.word_embedding_param = word_embedding_param
+        self.dialog_encoder = dialog_encoder
+        self.trng = MRG_RandomStreams(self.state['seed'])
+        self.init_params()
+
+    def init_params(self):
+        """
+        Initialize all parameters of the decoder.
+        :return: None
+        """
+
+        # Compute input dimensionality
+        '''
+        if self.state['direct_connection_between_encoders_and_decoder']:
+            # When there is a direct connection between encoder and decoder,
+            # the input has dimensionality sdim + qdim_decoder if forward encoder, and
+            # sdim + 2 x qdim_decoder for bidirectional encoder
+            if self.bidirectional_utterance_encoder:
+                self.input_dim = self.sdim + self.qdim_encoder * 2
+            else:
+                self.input_dim = self.sdim + self.qdim_encoder
+        else:
+        '''
+        # When there is no connection between encoder and decoder,
+        # the input has dimensionality sdim
+        self.input_dim = self.state['sdim']
+
+        # TODO: ask why *2 for LSTM?
+        # Compute hidden state dimensionality
+        if self.state['utterance_critic_decoder_gating'] == "LSTM":
+            # For LSTM decoder, the state hd is the concatenation of the cell state and hidden state
+            self.complete_hidden_state_size = self.state['qdim_critic_decoder'] * 2
+        else:
+            self.complete_hidden_state_size = self.state['qdim_critic_decoder']
+
+        # TODO: ask what is this parameter?
+        # Compute deep input
+        if self.state['deep_utterance_critic_decoder_input']:
+            self.input_mlp = OneLayerMLP(
+                self.state,
+                self.rng,
+                self.input_dim,
+                self.input_dim,
+                self.input_dim,
+                self,
+                '_input_mlp_utterance_critic_decoder'
+            )
+            self.params += self.input_mlp.params
+
+        # TODO: ask what is this parameter?
+        self.bd_out = add_to_params(
+            self.params,
+            theano.shared(value=np.zeros((self.state['idim'],), dtype='float32'),
+                          name='bd_out')
+        )
+        # TODO: ask what is this parameter?
+        self.Wd_emb = add_to_params(
+            self.params,
+            theano.shared(value=NormalInit(self.rng, self.state['idim'], self.state['rankdim']),
+                          name='Wd_emb')
+        )
+
+        #######################
+        # RNN decoder weights #
+        #######################
+        # False for 'BOW' gatting
+        if self.state['utterance_critic_decoder_gating'] == ""\
+                or self.state['utterance_critic_decoder_gating'] == "NONE" \
+                or self.state['utterance_critic_decoder_gating'] == "GRU"\
+                or self.state['utterance_critic_decoder_gating'] == "LSTM":
+
+            self.Wd_hh = add_to_params(
+                self.params,
+                theano.shared(value=OrthogonalInit(self.rng, self.state['qdim_critic_decoder'], self.state['qdim_critic_decoder']),
+                              name='Wd_hh')
+            )
+            self.bd_hh = add_to_params(
+                self.params,
+                theano.shared(value=np.zeros((self.state['qdim_critic_decoder'],), dtype='float32'),
+                              name='bd_hh')
+            )
+            self.Wd_in = add_to_params(
+                self.params,
+                theano.shared(value=NormalInit(self.rng, self.state['rankdim'], self.state['qdim_critic_decoder']),
+                              name='Wd_in')
+            )
+
+            # We only include the initial hidden state if the utterance decoder is NOT reset
+            # and if its NOT a collapsed model (i.e. collapsed to standard RNN).
+            # In the collapsed model, we always initialize hidden state to zero.
+            if (not self.state['collaps_to_standard_rnn'])\
+                    and self.state['reset_utterance_critic_decoder_at_end_of_utterance']:
+                self.Wd_s_0 = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.input_dim, self.complete_hidden_state_size),
+                                  name='Wd_s_0')
+                )
+                self.bd_s_0 = add_to_params(
+                    self.params,
+                    theano.shared(value=np.zeros((self.complete_hidden_state_size,), dtype='float32'),
+                                  name='bd_s_0')
+                )
+
+        if self.state['utterance_critic_decoder_gating'] == "GRU":
+            self.Wd_in_r = add_to_params(
+                self.params,
+                theano.shared(value=NormalInit(self.rng, self.state['rankdim'], self.state['qdim_critic_decoder']),
+                              name='Wd_in_r')
+            )
+            self.Wd_in_z = add_to_params(
+                self.params,
+                theano.shared(value=NormalInit(self.rng, self.state['rankdim'], self.state['qdim_critic_decoder']),
+                              name='Wd_in_z')
+            )
+            self.Wd_hh_r = add_to_params(
+                self.params,
+                theano.shared(value=OrthogonalInit(self.rng, self.state['qdim_critic_decoder'], self.state['qdim_critic_decoder']),
+                              name='Wd_hh_r')
+            )
+            self.Wd_hh_z = add_to_params(
+                self.params,
+                theano.shared(value=OrthogonalInit(self.rng, self.state['qdim_critic_decoder'], self.state['qdim_critic_decoder']),
+                              name='Wd_hh_z')
+            )
+            self.bd_r = add_to_params(
+                self.params,
+                theano.shared(value=np.zeros((self.state['qdim_critic_decoder'],), dtype='float32'),
+                              name='bd_r')
+            )
+            self.bd_z = add_to_params(
+                self.params,
+                theano.shared(value=np.zeros((self.state['qdim_critic_decoder'],), dtype='float32'),
+                              name='bd_z')
+            )
+            # TODO: ask should this be always true?
+            if self.state['critic_decoder_bias_type'] == 'all':
+                self.Wd_s_q = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.input_dim, self.state['qdim_critic_decoder']),
+                                  name='Wd_s_q')
+                )
+                self.Wd_s_z = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.input_dim, self.state['qdim_critic_decoder']),
+                                  name='Wd_s_z')
+                )
+                self.Wd_s_r = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.input_dim, self.state['qdim_critic_decoder']),
+                                  name='Wd_s_r')
+                )
+
+        elif self.state['utterance_critic_decoder_gating'] == "LSTM":
+            # Input gate
+            self.Wd_in_i = add_to_params(
+                self.params,
+                theano.shared(value=NormalInit(self.rng, self.state['rankdim'], self.state['qdim_critic_decoder']),
+                              name='Wd_in_i')
+            )
+            self.Wd_hh_i = add_to_params(
+                self.params,
+                theano.shared(value=NormalInit(self.rng, self.state['qdim_critic_decoder'], self.state['qdim_critic_decoder']),
+                              name='Wd_hh_i')
+            )
+            self.Wd_c_i = add_to_params(
+                self.params,
+                theano.shared(value=NormalInit(self.rng, self.state['qdim_critic_decoder'], self.state['qdim_critic_decoder']),
+                              name='Wd_c_i')
+            )
+            self.bd_i = add_to_params(
+                self.params,
+                theano.shared(value=np.zeros((self.state['qdim_critic_decoder'],), dtype='float32'),
+                              name='bd_i')
+            )
+            # Forget gate
+            self.Wd_in_f = add_to_params(
+                self.params,
+                theano.shared(value=NormalInit(self.rng, self.state['rankdim'], self.state['qdim_critic_decoder']),
+                              name='Wd_in_f')
+            )
+            self.Wd_hh_f = add_to_params(
+                self.params,
+                theano.shared(value=NormalInit(self.rng, self.state['qdim_critic_decoder'], self.state['qdim_critic_decoder']),
+                              name='Wd_hh_f')
+            )
+            self.Wd_c_f = add_to_params(
+                self.params,
+                theano.shared(value=NormalInit(self.rng, self.state['qdim_critic_decoder'], self.state['qdim_critic_decoder']),
+                              name='Wd_c_f')
+            )
+            self.bd_f = add_to_params(
+                self.params,
+                theano.shared(value=np.zeros((self.state['qdim_critic_decoder'],), dtype='float32'),
+                              name='bd_f')
+            )
+            # Output gate
+            self.Wd_in_o = add_to_params(
+                self.params,
+                theano.shared(value=NormalInit(self.rng, self.state['rankdim'], self.state['qdim_critic_decoder']),
+                              name='Wd_in_o')
+            )
+            self.Wd_hh_o = add_to_params(
+                self.params,
+                theano.shared(value=NormalInit(self.rng, self.state['qdim_critic_decoder'], self.state['qdim_critic_decoder']),
+                              name='Wd_hh_o')
+            )
+            self.Wd_c_o = add_to_params(
+                self.params,
+                theano.shared(value=NormalInit(self.rng, self.state['qdim_critic_decoder'], self.state['qdim_critic_decoder']),
+                              name='Wd_c_o')
+            )
+            self.bd_o = add_to_params(
+                self.params,
+                theano.shared(value=np.zeros((self.state['qdim_critic_decoder'],), dtype='float32'),
+                              name='bd_o')
+            )
+            # TODO: ask should this be always true? (always 'all')
+            if self.state['critic_decoder_bias_type'] == 'all' or self.state['critic_decoder_bias_type'] == 'selective':
+                # Input gate
+                self.Wd_s_i = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.input_dim, self.state['qdim_critic_decoder']),
+                                  name='Wd_s_i')
+                )
+                # Forget gate
+                self.Wd_s_f = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.input_dim, self.state['qdim_critic_decoder']),
+                                  name='Wd_s_f')
+                )
+                # Cell input
+                self.Wd_s = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.input_dim, self.state['qdim_critic_decoder']),
+                                  name='Wd_s')
+                )
+                # Output gate
+                self.Wd_s_o = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.input_dim, self.state['qdim_critic_decoder']),
+                                  name='Wd_s_o')
+                )
+
+        elif self.state['utterance_critic_decoder_gating'] == "BOW":
+            self.Wd_bow_W_in = add_to_params(
+                self.params,
+                theano.shared(value=NormalInit(self.rng, self.input_dim, self.state['qdim_critic_decoder']),
+                              name='Wd_bow_W_in')
+            )
+            self.Wd_bow_b_in = add_to_params(
+                self.params,
+                theano.shared(value=np.zeros((self.state['qdim_critic_decoder'],), dtype='float32'),
+                              name='Wd_bow_b_in')
+            )
+
+        # TODO: ask if necessary to keep?
+        # Selective gating mechanism
+        if self.state['critic_decoder_bias_type'] == 'selective':
+            # Selective gating mechanism is not compatible with bag-of-words decoder
+            assert self.state['utterance_critic_decoder_gating'] != "BOW"
+
+            # Selective gating mechanism for LSTM
+            if self.state['utterance_critic_decoder_gating'] == "LSTM":
+                self.bd_sel = add_to_params(
+                    self.params,
+                    theano.shared(value=np.zeros((self.input_dim,), dtype='float32'),
+                                  name='bd_sel')
+                )
+                self.Wd_sel_s = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.input_dim, self.input_dim),
+                                  name='Wd_sel_s')
+                )
+                # x_{n-1} -> g_r
+                self.Wd_sel_e = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.state['rankdim'], self.input_dim),
+                                  name='Wd_sel_e')
+                )
+                # h_{n-1} -> g_r
+                self.Wd_sel_h = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.state['qdim_critic_decoder'], self.input_dim),
+                                  name='Wd_sel_h')
+                )
+                # c_{n-1} -> g_r
+                self.Wd_sel_c = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.state['qdim_critic_decoder'], self.input_dim),
+                                  name='Wd_sel_c')
+                )
+
+            # Selective gating mechanism for GRU and plain decoder
+            else:
+                self.bd_sel = add_to_params(
+                    self.params,
+                    theano.shared(value=np.zeros((self.input_dim,), dtype='float32'),
+                                  name='bd_sel')
+                )
+                self.Wd_s_q = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.input_dim, self.state['qdim_critic_decoder']),
+                                  name='Wd_s_q')
+                )
+                # s -> g_r
+                self.Wd_sel_s = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.input_dim, self.input_dim),
+                                  name='Wd_sel_s')
+                )
+                # x_{n-1} -> g_r
+                self.Wd_sel_e = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.state['rankdim'], self.input_dim),
+                                  name='Wd_sel_e')
+                )
+                # h_{n-1} -> g_r
+                self.Wd_sel_h = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.state['qdim_critic_decoder'], self.input_dim),
+                                  name='Wd_sel_h')
+                )
+
+        ######################
+        # Output layer weights
+        ######################
+        if self.state['maxout_out']:
+            if int(self.state['qdim_critic_decoder']) != 2 * int(self.state['rankdim']):
+                raise ValueError('Error with maxout configuration in UtteranceDecoder!'
+                                 + 'For maxout to work we need qdim_critic_decoder = 2x rankdim')
+
+        out_target_dim = self.state['qdim_critic_decoder']
+        if not self.state['maxout_out']:
+            out_target_dim = self.state['rankdim']
+
+        self.Wd_out = add_to_params(
+            self.params,
+            theano.shared(value=NormalInit(self.rng, self.state['qdim_critic_decoder'], out_target_dim),
+                          name='Wd_out')
+        )
+
+        # Set up deep output
+        if self.state['deep_utterance_critic_decoder_out']:
+
+            # False for 'BOW' gatting
+            if self.state['utterance_critic_decoder_gating'] == ""\
+                    or self.state['utterance_critic_decoder_gating'] == "NONE"\
+                    or self.state['utterance_critic_decoder_gating'] == "GRU"\
+                    or self.state['utterance_critic_decoder_gating'] == "LSTM":
+                self.Wd_e_out = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.state['rankdim'], out_target_dim),
+                                  name='Wd_e_out')
+                )
+                self.bd_e_out = add_to_params(
+                    self.params,
+                    theano.shared(value=np.zeros((out_target_dim,), dtype='float32'),
+                                  name='bd_e_out')
+                )
+
+            # TODO: ask if necessary to keep?
+            if self.state['critic_decoder_bias_type'] != 'first':
+                self.Wd_s_out = add_to_params(
+                    self.params,
+                    theano.shared(value=NormalInit(self.rng, self.input_dim, out_target_dim),
+                                  name='Wd_s_out')
+                )
+
+    def build_output_layer(self, hs, xd, hd):
+        """
+        Build the output layer of the decoder ... TODO: give details
+        :param hs: TODO
+        :param xd: TODO
+        :param hd: TODO
+        :return: the output layer 'pre-activ'
+        """
+        if self.state['utterance_critic_decoder_gating'] == "LSTM":
+            if hd.ndim != 2:
+                pre_activ = T.dot(hd[:, :, 0:self.state['qdim_decoder']], self.Wd_out)
+            else:
+                pre_activ = T.dot(hd[:, 0:self.state['qdim_decoder']], self.Wd_out)
+        else:
+            pre_activ = T.dot(hd, self.Wd_out)
+
+        if self.state['deep_utterance_critic_decoder_out']:
+            # False for 'BOW' gatting
+            if self.state['utterance_critic_decoder_gating'] == ""\
+                    or self.state['utterance_critic_decoder_gating'] == "NONE"\
+                    or self.state['utterance_critic_decoder_gating'] == "GRU"\
+                    or self.state['utterance_critic_decoder_gating'] == "LSTM":
+                pre_activ += T.dot(xd, self.Wd_e_out) + self.bd_e_out
+
+            # TODO: ask should this always be true (always 'all')
+            if self.state['critic_decoder_bias_type'] != 'first':
+                pre_activ += T.dot(hs, self.Wd_s_out)
+                # ^ if bias all, bias the deep output
+
+        if self.state['maxout_out']:
+            pre_activ = Maxout(2)(pre_activ)
+
+        return pre_activ
+
+    def build_next_probs_predictor(self, inp, x, prev_state):
+        """
+        Return output probabilities given prev_words x, hierarchical pass hs (TODO), and previous hd.
+        hs should always be the same (and should not be updated).
+        TODO: update the above description & give details
+        :param inp: TODO type? shape? description?
+        :param x: previous words TODO type? shape? from context or from previously generated?
+        :param prev_state: TODO type? shape?
+        :return: output probabilities TODO: vector? tensor?
+        """
+        return self.build_decoder(inp, x, prev_state=prev_state)
+
+    def approx_embedder(self, x):
+        """
+        Embed the given word x with the embeddings learnt from the encoder.
+        :param x: word to embed
+        :return: word embedding
+        """
+        return self.word_embedding_param[x]
+
+    def output_softmax(self, pre_activ):
+        """
+        Compute the softmax of the output layer.
+        :param pre_activ: output layer computed by 'self.build_output_layer'
+        :return: Softmax to make output probabilities. Of the form: (timestep, bs, idim) matrix (huge)
+        """
+        return SoftMax(T.dot(pre_activ, self.Wd_emb.T) + self.bd_out)
+
+
+    def build_decoder(self, decoder_inp, x, xmask=None, xdropmask=None, y=None, y_neg=None,
+                      prev_state=None, step_num=None):
+        """
+        Build the decoder network
+        :param decoder_inp: TODO type? shape? description?
+        :param x: matrix of conversations: max_len x batch_size. conversations are on columns
+        :param xmask: same dimensions as 'x', mask out the response
+        :param xdropmask: if given, replace 'dropped' tokens with 'unk' tokens in input. TODO: shape?
+        :param y: true response: same as x but with a shift of 1 token (only used for EVAL & NCE mode)
+        :param y_neg: TODO
+        :param prev_state: TODO (only used for BEAM_SEARCH & SAMPLING mode)
+        :param step_num: TODO
+        :return: TODO
+        """
+
+        # If model collapses to standard RNN reset all input to decoder
+        if self.state['collaps_to_standard_rnn']:
+            decoder_inp = decoder_inp * 0
+
+        # Compute deep input
+        if self.state['deep_utterance_critic_decoder_input']:
+            decoder_inp, updates = self.input_mlp.build_output(decoder_inp, xmask)
+        else:
+            updates = []
+
+        # Check parameter consistency
+        assert y
+
+        # Define 'xd' = embeddings of input 'x'
+        # If a drop mask is given, replace 'dropped' tokens with 'unk' token as input to the decoder RNN.
+        if self.state['critic_decoder_drop_previous_input_tokens'] and xdropmask:
+            xdropmask = xdropmask.dimshuffle(0, 1, 'x')
+            xd = xdropmask * self.approx_embedder(x)\
+                 + (1-xdropmask) * self.word_embedding_param[self.state['unk_sym']].dimshuffle('x', 'x', 0)
+        else:
+            xd = self.approx_embedder(x)
+
+        if not xmask:
+            xmask = T.neq(x, self.state['eos_sym'])  # xmask = 1 for all x != eos, and 0 otherwise.
+
+        # we must zero out the </s> embedding
+        # i.e. the embedding x_{-1} is the 0 vector
+        # as well as hd_{-1} which will be reset in the scan functions
+        if xd.ndim != 3:
+            logger.warning("xd.ndim != 3 should not happen!")
+            xd = (xd.dimshuffle((1, 0)) * xmask).dimshuffle((1, 0))
+        else:
+            xd = (xd.dimshuffle((2, 0, 1)) * xmask).dimshuffle((1, 2, 0))
+
+        # Run RNN decoder: define hd <=> last decoder hidden state
+        hd = None
+        # False for 'BOW' gatting
+        if self.state['utterance_critic_decoder_gating'] == ""\
+                or self.state['utterance_critic_decoder_gating'] == "NONE"\
+                or self.state['utterance_critic_decoder_gating'] == "GRU"\
+                or self.state['utterance_critic_decoder_gating'] == "LSTM":
+
+            if prev_state:
+                hd_init = prev_state
+            else:
+                hd_init = T.alloc(np.float32(0), x.shape[1], self.complete_hidden_state_size)
+
+            if self.state['utterance_critic_decoder_gating'] == "LSTM":
+                f_dec = self.LSTM_step
+                o_dec_info = [hd_init]
+                # TODO: ask if necessary to keep?
+                if self.state['critic_decoder_bias_type'] == "selective":
+                    o_dec_info += [None, None]
+
+            elif self.state['utterance_critic_decoder_gating'] == "GRU":
+                f_dec = self.GRU_step
+                o_dec_info = [hd_init, None, None, None]
+                # TODO: ask if necessary to keep?
+                if self.state['critic_decoder_bias_type'] == "selective":
+                    o_dec_info += [None, None]
+
+            else:  # No gating
+                f_dec = self.plain_step
+                o_dec_info = [hd_init]
+                # TODO: ask if necessary to keep?
+                if self.state['critic_decoder_bias_type'] == "selective":
+                    o_dec_info += [None, None]
+
+            # We evaluate by default all the utterances xd
+            # i.e. xd.ndim == 3, xd = (timesteps, batch_size, qdim_decoder)
+            _res, _ = theano.scan(
+                f_dec,
+                sequences=[xd, xmask, decoder_inp],
+                outputs_info=o_dec_info
+            )
+            hd = _res[0]
+
+        elif self.state['utterance_critic_decoder_gating'] == "BOW":
+            hd = T.dot(decoder_inp, self.Wd_bow_W_in) + self.Wd_bow_b_in
+
+        pre_activ = self.build_output_layer(decoder_inp, xd, hd)
+
+        return pre_activ, hd, updates
+
+
+    def LSTM_step(self, xd_t, m_t, decoder_inp_t, hd_tm1):
+        if m_t.ndim >= 1:
+            m_t = m_t.dimshuffle(0, 'x')
+
+        # If model collapses to standard RNN, or the 'reset_utterance_decoder_at_end_of_utterance' flag is off,
+        # then never reset decoder. Otherwise, reset the decoder at every utterance turn.
+        if (not self.state['collaps_to_standard_rnn']) and (self.state['reset_utterance_critic_decoder_at_end_of_utterance']):
+            hd_tm1 = (m_t) * hd_tm1 + (1 - m_t) * T.tanh(T.dot(decoder_inp_t, self.Wd_s_0) + self.bd_s_0)
+
+        # Unlike the GRU gating function, the LSTM gating function needs to keep track of two vectors:
+        # the output state and the cell state. To align the implementation with the GRU, we store
+        # both of these two states in a single vector for every time step, split them up for computation and
+        # then concatenate them back together at the end.
+
+        # Given the previous concatenated hidden states, split them up into output state and cell state.
+        # By convention, we assume that the output state is always first, and the cell state second.
+        hd_tm1_tilde = hd_tm1[:, 0:self.state['qdim_critic_decoder']]
+        cd_tm1_tilde = hd_tm1[:, self.state['qdim_critic_decoder']:self.state['qdim_critic_decoder'] * 2]
+
+        # In the 'selective' decoder bias type each hidden state of the decoder
+        # RNN receives the decoder_inp_t modified by the selective bias -> decoder_inpr_t
+        # TODO: ask if necessary to keep?
+        if self.state['critic_decoder_bias_type'] == 'selective':
+            rd_sel_t = T.nnet.sigmoid(
+                T.dot(xd_t, self.Wd_sel_e) + T.dot(hd_tm1_tilde, self.Wd_sel_h) + T.dot(cd_tm1_tilde,
+                                                                                        self.Wd_sel_c) + T.dot(
+                    decoder_inp_t, self.Wd_sel_s) + self.bd_sel)
+            decoder_inpr_t = rd_sel_t * decoder_inp_t
+
+            id_t = T.nnet.sigmoid(T.dot(xd_t, self.Wd_in_i) + T.dot(hd_tm1_tilde, self.Wd_hh_i) \
+                                  + T.dot(decoder_inpr_t, self.Wd_s_i) \
+                                  + T.dot(cd_tm1_tilde, self.Wd_c_i) + self.bd_i)
+            fd_t = T.nnet.sigmoid(T.dot(xd_t, self.Wd_in_f) + T.dot(hd_tm1_tilde, self.Wd_hh_f) \
+                                  + T.dot(decoder_inpr_t, self.Wd_s_f) \
+                                  + T.dot(cd_tm1_tilde, self.Wd_c_f) + self.bd_f)
+            cd_t = fd_t * cd_tm1_tilde + id_t * self.sent_rec_activation(T.dot(xd_t, self.Wd_in) \
+                                                                         + T.dot(decoder_inpr_t, self.Wd_s) \
+                                                                         + T.dot(hd_tm1_tilde, self.Wd_hh) + self.bd_hh)
+            od_t = T.nnet.sigmoid(T.dot(xd_t, self.Wd_in_o) + T.dot(hd_tm1_tilde, self.Wd_hh_o) \
+                                  + T.dot(decoder_inpr_t, self.Wd_s_o) \
+                                  + T.dot(cd_t, self.Wd_c_o) + self.bd_o)
+
+            # Concatenate output state and cell state into one vector
+            hd_t = T.concatenate([od_t * self.sent_rec_activation(cd_t), cd_t], axis=1)
+            output = (hd_t, decoder_inpr_t, rd_sel_t)
+
+        # In the 'all' decoder bias type each hidden state of the decoder
+        # RNN receives the decoder_inp_t vector as bias without modification
+        elif self.state['decoder_bias_type'] == 'all':
+            id_t = T.nnet.sigmoid(T.dot(xd_t, self.Wd_in_i) + T.dot(hd_tm1_tilde, self.Wd_hh_i) \
+                                  + T.dot(decoder_inp_t, self.Wd_s_i) \
+                                  + T.dot(cd_tm1_tilde, self.Wd_c_i) + self.bd_i)
+            fd_t = T.nnet.sigmoid(T.dot(xd_t, self.Wd_in_f) + T.dot(hd_tm1_tilde, self.Wd_hh_f) \
+                                  + T.dot(decoder_inp_t, self.Wd_s_f) \
+                                  + T.dot(cd_tm1_tilde, self.Wd_c_f) + self.bd_f)
+            cd_t = fd_t * cd_tm1_tilde + id_t * self.sent_rec_activation(T.dot(xd_t, self.Wd_in) \
+                                                                         + T.dot(decoder_inp_t, self.Wd_s) \
+                                                                         + T.dot(hd_tm1_tilde, self.Wd_hh) + self.bd_hh)
+            od_t = T.nnet.sigmoid(T.dot(xd_t, self.Wd_in_o) + T.dot(hd_tm1_tilde, self.Wd_hh_o) \
+                                  + T.dot(decoder_inp_t, self.Wd_s_o) \
+                                  + T.dot(cd_t, self.Wd_c_o) + self.bd_o)
+
+            # Concatenate output state and cell state into one vector
+            hd_t = T.concatenate([od_t * self.sent_rec_activation(cd_t), cd_t], axis=1)
+            output = (hd_t,)
+
+        # TODO: ask if necessary to keep?
+        else:
+            # Do not bias the decoder at every time, instead,
+            # force it to store very useful information in the first state.
+            id_t = T.nnet.sigmoid(T.dot(xd_t, self.Wd_in_i) + T.dot(hd_tm1_tilde, self.Wd_hh_i) \
+                                  + T.dot(cd_tm1_tilde, self.Wd_c_i) + self.bd_i)
+            fd_t = T.nnet.sigmoid(T.dot(xd_t, self.Wd_in_f) + T.dot(hd_tm1_tilde, self.Wd_hh_f) \
+                                  + T.dot(cd_tm1_tilde, self.Wd_c_f) + self.bd_f)
+            cd_t = fd_t * cd_tm1_tilde + id_t * self.sent_rec_activation(T.dot(xd_t, self.Wd_in_c) \
+                                                                         + T.dot(hd_tm1_tilde, self.Wd_hh) + self.bd_hh)
+            od_t = T.nnet.sigmoid(T.dot(xd_t, self.Wd_in_o) + T.dot(hd_tm1_tilde, self.Wd_hh_o) \
+                                  + T.dot(cd_t, self.Wd_c_o) + self.bd_o)
+
+            # Concatenate output state and cell state into one vector
+            hd_t = T.concatenate([od_t * self.sent_rec_activation(cd_t), cd_t], axis=1)
+            output = (hd_t,)
+
+        return output
+
+    def GRU_step(self, xd_t, m_t, decoder_inp_t, hd_tm1):
+        if m_t.ndim >= 1:
+            m_t = m_t.dimshuffle(0, 'x')
+
+        # If model collapses to standard RNN, or the 'reset_utterance_decoder_at_end_of_utterance' flag is off,
+        # then never reset decoder. Otherwise, reset the decoder at every utterance turn.
+        if (not self.state['collaps_to_standard_rnn']) and (self.state['reset_utterance_critic_decoder_at_end_of_utterance']):
+            hd_tm1 = (m_t) * hd_tm1 + (1 - m_t) * T.tanh(T.dot(decoder_inp_t, self.Wd_s_0) + self.bd_s_0)
+
+        # In the 'selective' decoder bias type each hidden state of the decoder
+        # RNN receives the decoder_inp_t modified by the selective bias -> decoder_inpr_t
+        # TODO: ask if necessary to keep?
+        if self.state['critic_decoder_bias_type'] == 'selective':
+            rd_sel_t = T.nnet.sigmoid(T.dot(xd_t, self.Wd_sel_e) + T.dot(hd_tm1, self.Wd_sel_h) + T.dot(decoder_inp_t,
+                                                                                                        self.Wd_sel_s) + self.bd_sel)
+            decoder_inpr_t = rd_sel_t * decoder_inp_t
+
+            rd_t = T.nnet.sigmoid(T.dot(xd_t, self.Wd_in_r) + T.dot(hd_tm1, self.Wd_hh_r) + self.bd_r)
+            zd_t = T.nnet.sigmoid(T.dot(xd_t, self.Wd_in_z) + T.dot(hd_tm1, self.Wd_hh_z) + self.bd_z)
+            hd_tilde = self.sent_rec_activation(T.dot(xd_t, self.Wd_in) \
+                                                + T.dot(rd_t * hd_tm1, self.Wd_hh) \
+                                                + T.dot(decoder_inpr_t, self.Wd_s_q) \
+                                                + self.bd_hh)
+
+            hd_t = (np.float32(1.) - zd_t) * hd_tm1 + zd_t * hd_tilde
+            output = (hd_t, decoder_inpr_t, rd_sel_t, rd_t, zd_t, hd_tilde)
+
+        # In the 'all' decoder bias type each hidden state of the decoder
+        # RNN receives the decoder_inp_t vector as bias without modification
+        elif self.state['critic_decoder_bias_type'] == 'all':
+
+            rd_t = T.nnet.sigmoid(
+                T.dot(xd_t, self.Wd_in_r) + T.dot(hd_tm1, self.Wd_hh_r) + T.dot(decoder_inp_t, self.Wd_s_r) + self.bd_r)
+            zd_t = T.nnet.sigmoid(
+                T.dot(xd_t, self.Wd_in_z) + T.dot(hd_tm1, self.Wd_hh_z) + T.dot(decoder_inp_t, self.Wd_s_z) + self.bd_z)
+            hd_tilde = self.sent_rec_activation(T.dot(xd_t, self.Wd_in) \
+                                                + T.dot(rd_t * hd_tm1, self.Wd_hh) \
+                                                + T.dot(decoder_inp_t, self.Wd_s_q) \
+                                                + self.bd_hh)
+            hd_t = (np.float32(1.) - zd_t) * hd_tm1 + zd_t * hd_tilde
+            output = (hd_t, rd_t, zd_t, hd_tilde)
+
+        # TODO: ask if necessary to keep?
+        else:
+            # Do not bias the decoder at every time, instead,
+            # force it to store very useful information in the first state.
+            rd_t = T.nnet.sigmoid(T.dot(xd_t, self.Wd_in_r) + T.dot(hd_tm1, self.Wd_hh_r) + self.bd_r)
+            zd_t = T.nnet.sigmoid(T.dot(xd_t, self.Wd_in_z) + T.dot(hd_tm1, self.Wd_hh_z) + self.bd_z)
+            hd_tilde = self.sent_rec_activation(T.dot(xd_t, self.Wd_in) \
+                                                + T.dot(rd_t * hd_tm1, self.Wd_hh) \
+                                                + self.bd_hh)
+            hd_t = (np.float32(1.) - zd_t) * hd_tm1 + zd_t * hd_tilde
+            output = (hd_t, rd_t, zd_t, hd_tilde)
+        return output
+
+    def plain_step(self, xd_t, m_t, decoder_inp_t, hd_tm1):
+        if m_t.ndim >= 1:
+            m_t = m_t.dimshuffle(0, 'x')
+
+        # If model collapses to standard RNN, or the 'reset_utterance_decoder_at_end_of_utterance' flag is off,
+        # then never reset decoder. Otherwise, reset the decoder at every utterance turn.
+        if (not self.state['collaps_to_standard_rnn']) and (self.state['reset_utterance_critic_decoder_at_end_of_utterance']):
+            # We already assume that xd are zeroed out
+            hd_tm1 = (m_t) * hd_tm1 + (1 - m_t) * T.tanh(T.dot(decoder_inp_t, self.Wd_s_0) + self.bd_s_0)
+
+        # TODO: ask if necessary to keep?
+        if self.state['critic_decoder_bias_type'] == 'first':
+            # Do not bias the decoder at every time, instead,
+            # force it to store very useful information in the first state.
+            hd_t = self.sent_rec_activation(T.dot(xd_t, self.Wd_in) \
+                                            + T.dot(hd_tm1, self.Wd_hh) \
+                                            + self.bd_hh)
+            output = (hd_t,)
+
+        elif self.state['critic_decoder_bias_type'] == 'all':
+            hd_t = self.sent_rec_activation(T.dot(xd_t, self.Wd_in) \
+                                            + T.dot(hd_tm1, self.Wd_hh) \
+                                            + T.dot(decoder_inp_t, self.Wd_s_q) \
+                                            + self.bd_hh)
+            output = (hd_t,)
+
+        # TODO: ask if necessary to keep?
+        elif self.state['critic_decoder_bias_type'] == 'selective':
+            rd_sel_t = T.nnet.sigmoid(T.dot(xd_t, self.Wd_sel_e) + T.dot(hd_tm1, self.Wd_sel_h) + T.dot(decoder_inp_t,
+                                                                                                        self.Wd_sel_s) + self.bd_sel)
+            decoder_inpr_t = rd_sel_t * decoder_inp_t
+
+            hd_t = self.sent_rec_activation(T.dot(xd_t, self.Wd_in) \
+                                            + T.dot(hd_tm1, self.Wd_hh) \
+                                            + T.dot(decoder_inpr_t, self.Wd_s_q) \
+                                            + self.bd_hh)
+            output = (hd_t, decoder_inpr_t, rd_sel_t)
+
+        else:
+            output = None
+
+        return output
+

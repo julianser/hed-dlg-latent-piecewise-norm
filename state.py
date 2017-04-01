@@ -6877,3 +6877,58 @@ def prototype_policy_gradient_toy():
     state['utterance_decoder_gating'] = 'GRU'
 
     return state
+
+
+# Twitter HRED model, where context biases decoder using standard MLP - Trained with Actor-Critic
+def prototype_twitter_HRED_StandardBias_ActorCritic():
+    state = prototype_state()
+
+    # Fill your paths here!
+    state['train_dialogues'] = "../TwitterData/Training.dialogues.pkl"
+    state['test_dialogues'] = "../TwitterData/Test.dialogues.pkl"
+    state['valid_dialogues'] = "../TwitterData/Validation.dialogues.pkl"
+    state['dictionary'] = "../TwitterData/Dataset.dict.pkl"
+    state['save_dir'] = "PG_Output"
+
+    state['use_pg'] = True
+
+    state['max_grad_steps'] = 80
+
+    state['valid_freq'] = 5000
+
+    state['prefix'] = "Twitter_PG-HRED_"
+    state['updater'] = 'adam'
+
+    state['bidirectional_utterance_encoder'] = True
+    state['deep_dialogue_encoder_input'] = True
+    state['deep_utterance_decoder_out'] = True
+
+    state['bs'] = 40 # If out of memory, modify this!
+    state['decoder_bias_type'] = 'all' # Choose between 'first', 'all' and 'selective'
+    state['direct_connection_between_encoders_and_decoder'] = False
+    state['deep_direct_connection'] = False
+
+    state['qdim_encoder'] = 1000
+    state['qdim_decoder'] = 1000
+    state['sdim'] = 1000
+    state['rankdim'] = 400
+
+    state['utterance_decoder_gating'] = 'LSTM'  # decoder of actor: outputs word predictions
+
+    ###
+    # Critic decoder parameters
+    ###
+    state['deep_utterance_critic_decoder_input'] = True
+    state['deep_utterance_critic_decoder_out'] = True
+    state['reset_utterance_critic_decoder_at_end_of_utterance'] = True
+    # If this flag is enabled, previous token input to the decoder RNN is replaced with 'unk' tokens at random.
+    state['critic_decoder_drop_previous_input_tokens'] = False
+    # The rate at which the previous tokens input to the decoder is kept (not set to 'unk').
+    # Setting this to zero effectively disables teacher-forcing in the model.
+    state['critic_decoder_drop_previous_input_tokens_rate'] = 0.75
+    state['critic_decoder_bias_type'] = 'all'  # Choose between 'first', 'all' and 'selective'
+    state['qdim_critic_decoder'] = 1000
+    state['utterance_critic_decoder_gating'] = 'LSTM'  # decoder of critic: outputs Q values
+
+    return state
+

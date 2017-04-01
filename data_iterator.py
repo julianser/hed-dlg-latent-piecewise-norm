@@ -105,26 +105,32 @@ def add_random_variables_to_batch(state, rng, batch, prev_batch, evaluate_mode):
 
 
 def copy_score(context, response):
+    """
+    TODO: description of this scoring function
+    :param context:
+    :param response:
+    :return:
+    """
     length = len(response.split())
-    score = 0
+    score = 0  # TODO: remove if never used for this scoring function & maybe create another scoring function where it's used?
     returns = np.zeros((length,), dtype='int32')
     #print returns.shape
     rewards = []
     c_words, r_words = context.split(), response.split()
-    done = False
+    done = False  # TODO: remove if never used for this scoring function & maybe create another scoring function where it's used?
     for i in xrange(0, length):
         if i >= len(c_words) or i >= len(r_words):
-            #score -= (max_length-i)
+            #score -= (max_length-i)  # TODO: remove
             rewards.append(0)
             continue
         if i != 0 and c_words[i] == '</s>':
-            done = True
+            done = True  # TODO: remove since never used
         #if c_words[i] == r_words[i] and not done: rewards.append(1)
         if r_words[i] == '7': rewards.append(1)
         else: rewards.append(0)
     
     so_far = 0
-    baseline = 3
+    baseline = 3  # TODO: remove if never used for this scoring function & maybe create another scoring function where it's used?
     for i in xrange(1, len(rewards)+1):
         so_far += rewards[-i]
         returns[length-i] = so_far 
