@@ -215,6 +215,7 @@ def main(args):
         logger.debug("Training with policy-gradient.")
         train_batch = model.build_pg_train_function()
         debug_fn = model.build_debug_fn()
+        eval_batch = model.build_pg_eval_function()
     elif not state["use_nce"]:
         if ('add_latent_gaussian_per_utterance' in state) and (state["add_latent_gaussian_per_utterance"]):
             logger.debug("Training using variational lower bound on log-likelihood")
@@ -222,11 +223,12 @@ def main(args):
             logger.debug("Training using exact log-likelihood")
 
         train_batch = model.build_train_function()
+        eval_batch = model.build_eval_function()
     else:
         logger.debug("Training with noise contrastive estimation")
         train_batch = model.build_nce_function()
 
-    eval_batch = model.build_eval_function()
+        eval_batch = model.build_eval_function()
 
     gamma_bounding = model.build_gamma_bounding_function()
 
@@ -331,11 +333,11 @@ def main(args):
             if state['use_pg']:
                 c = train_batch(x_data, x_data_reversed, max_length, x_cost_mask, x_reset, ran_gaussian_const_utterance, ran_uniform_const_utterance, ran_decoder_drop_mask, batch['returns'])
                 d_info = debug_fn(x_data, x_data_reversed, max_length, x_cost_mask, x_reset, ran_gaussian_const_utterance, ran_uniform_const_utterance, ran_decoder_drop_mask, batch['returns'])
-                if (d_info[2] > 1).any():
-                    with open('/home/ml/mnosew1/tmp/debug_rewards.pkl', 'wb') as handle:
+                if (d_info[1] > 1).any():
+                    with open('/home/ml/mnosew1/tmp/debug_rewards_simple.pkl', 'wb') as handle:
                         cPickle.dump({'batch':batch, 'debug': d_info}, handle)
                 else:
-                    with open('/home/ml/mnosew1/tmp/debug_normal.pkl', 'wb') as handle:
+                    with open('/home/ml/mnosew1/tmp/debug_simple.pkl', 'wb') as handle:
                         cPickle.dump({'batch':batch, 'debug': d_info}, handle)
                 kl_divergence_cost = 0.0
             elif model.add_latent_piecewise_per_utterance and model.add_latent_gaussian_per_utterance:
@@ -538,7 +540,7 @@ def main(args):
 
                     posterior_gaussian_mean_variance = 0.0
 
-                    c, c_list, kl_term = eval_batch(x_data, x_data_reversed, max_length, x_cost_mask, x_reset, ran_gaussian_const_utterance, ran_uniform_const_utterance, ran_decoder_drop_mask)
+                    c, c_list, kl_term = eval_batch(x_data, x_data_reversed, max_length, x_cost_mask, x_reset, ran_gaussian_const_utterance, ran_uniform_const_utterance, ran_decoder_drop_mask, batch['returns'])
 
 
                     # Rehape into matrix, where rows are validation samples and columns are tokens

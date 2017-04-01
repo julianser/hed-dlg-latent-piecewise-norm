@@ -119,13 +119,15 @@ def copy_score(context, response):
             continue
         if i != 0 and c_words[i] == '</s>':
             done = True
-        if c_words[i] == r_words[i] and not done: rewards.append(1)
+        #if c_words[i] == r_words[i] and not done: rewards.append(1)
+        if r_words[i] == '7': rewards.append(1)
         else: rewards.append(0)
     
     so_far = 0
+    baseline = 3
     for i in xrange(1, len(rewards)+1):
         so_far += rewards[-i]
-        returns[length-i] = so_far
+        returns[length-i] = so_far 
     
     return returns
 

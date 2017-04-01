@@ -1858,7 +1858,7 @@ class DialogEncoderDecoder(Model):
                                                              self.ran_uniform_cost_utterance,
                                                              self.x_dropmask,
                                                              self.returns],
-                                                outputs=self.pg_cost,
+                                                outputs=self.training_cost,
                                                 updates=self.updates + self.state_updates, 
                                                 on_unused_input='warn', 
                                                 name="train_fn")   
@@ -1954,6 +1954,20 @@ class DialogEncoderDecoder(Model):
                                             name="decoder_encoding_fn")
 
         return self.decoder_encoding_fn
+
+    def build_pg_eval_function(self):
+        if not hasattr(self, 'eval_fn'):
+            # Compile functions
+            logger.debug("Building evaluation function")
+
+            self.eval_fn = theano.function(inputs=[self.x_data, self.x_data_reversed, self.x_max_length, self.x_cost_mask, self.x_reset_mask, self.ran_gaussian_cost_utterance, self.ran_uniform_cost_utterance, self.x_dropmask, self.returns], 
+                                            outputs=[self.evaluation_cost, self.softmax_cost, self.kl_divergence_cost_acc], 
+                                            updates=self.state_updates,
+                                            on_unused_input='warn', name="eval_fn")
+
+
+
+        return self.eval_fn
 
     # Helper function used for the training with noise contrastive estimation (NCE).
     # This function is currently not supported.
@@ -2583,6 +2597,8 @@ class DialogEncoderDecoder(Model):
             # The encoder h embedding is the final hidden state of the forward encoder RNN
             res_forward, res_forward_n, res_forward_updates = self.utterance_encoder.build_encoder(training_x, xmask=training_hs_mask, prev_state=[self.ph, self.ph_n])
 
+            #res_y_star_forward, res_y_star_forward_n, res_y_star_forward_updates = self.utterance_encoder.build_encoder(y_star, xmask=training_hs_mask, prev_state=[self.ph, self.ph_n])
+
             self.h = res_forward
 
 
@@ -2991,7 +3007,7 @@ class DialogEncoderDecoder(Model):
             self.training_cost = self.contrastive_cost
 
         if self.state['use_pg']:
-            self.pg_cost = T.sum(-T.log(target_probs) * training_returns * training_x_cost_mask_flat)
+            self.training_cost = T.sum(-T.log(target_probs) * training_returns * training_x_cost_mask_flat)
 
         # Compute training cost as variational lower bound with possible annealing of KL-divergence term
         if self.add_latent_gaussian_per_utterance or self.add_latent_piecewise_per_utterance:
@@ -3198,33 +3214,3 @@ class DialogEncoderDecoder(Model):
         self.beam_hd = T.matrix("beam_hd")
         self.beam_ran_gaussian_cost_utterance = T.matrix('beam_ran_gaussian_cost_utterance')
         self.beam_ran_uniform_cost_utterance = T.matrix('beam_ran_uniform_cost_utterance')
-
-
-class CriticEncoderDecoder():
-    """
-    Should look like the `UtteranceEncoder` class?
-    GRU or LSTM ? gated RNN encoder
-    Operates on hidden states at the word level
-    0) in: part of utterance Y_t, true response Y*, and context C
-    1) encodes part of utterances generated at each step of the Actor Network into real-values fixed-sized vectors: Y_t
-    2) encodes the actual TRUE response that we try to generate into real-valued fixed-sized vector: Y*
-    3) encodes the context into real-valued fixed-sized vector: C
-    4) concatenate those vectors into [Y_t, Y*, C]
-
-    5) out: Q(a|[Y_t, Y*, C]) for all action a in Vocabulary --> current estimate
-    5') if training then continue
-
-    6) compute the target : q_t = r_t + sum_{a in Vocab} [p(a|Y_t, C)*Q'(a|Y_t, Y*, C)]
-        with:
-        r_t = ADEM(Y_t, Y*, C) - ADEM(Y_t-1, Y*, C) with Y_t and Y_t-1 being completed by sampling the space of action
-            according to either p(y_t+1 | Y_t, C) or a simple heuristic.
-        p(a|Y_t, C) = probability of emitting action a at position t+1 given previous generation Y_t and context C ~ HRED
-        Q'(a|Y_t, Y*, C) = delayed estimate of Q action value function = current network but with delayed weights
-    7) update weights using gradient : w <- w + alpha [sum from t=1 to T { (Q(y_t|[Y_t-1,Y*,C]) - q_t)^2 + lambda C_t }]
-        with:
-        C_t as a constraint for actions that are rarely sampled ~ regularization
-        C_t = sum_{a in Vocab} [Q(a|[Y_t-1,Y*,C]) - 1/|Vocab| sum_{b in Vocab}Q(a|[Y_t-1,Y*,C])]^2
-    8) update delayed weights : w' <- phi*w + (1-phi)*(w')
-
-    ex: of lambda & phi: 0.001 or 0.0001
-    """
