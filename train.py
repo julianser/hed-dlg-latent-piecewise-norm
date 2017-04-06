@@ -503,7 +503,7 @@ def main(args):
 
                     posterior_gaussian_mean_variance = 0.0
 
-                    c, c_list, kl_term = eval_batch(x_data, x_data_reversed, max_length, x_cost_mask, x_reset, ran_gaussian_const_utterance, ran_uniform_const_utterance, ran_decoder_drop_mask)
+                    c, c_list, kl_divergence_cost = eval_batch(x_data, x_data_reversed, max_length, x_cost_mask, x_reset, ran_gaussian_const_utterance, ran_uniform_const_utterance, ran_decoder_drop_mask)
 
 
                     # Rehape into matrix, where rows are validation samples and columns are tokens
