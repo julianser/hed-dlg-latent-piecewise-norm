@@ -47,14 +47,14 @@ class SSFetcher(threading.Thread):
 
             while len(dialogues) < diter.batch_size:
                 if self.offset == diter.data_len:
-                    if not diter.use_infinite_loop:
-                        last_batch = True
-                        break
-                    else:
+                    if diter.use_infinite_loop:
                         # Infinite loop here, we reshuffle the indexes
                         # and reset the self.offset
                         self.apply_reshuffle()
 
+                    else:
+                        last_batch = True
+                        break
                 index = self.indexes[self.offset]
                 s = diter.data[index]
 
@@ -64,19 +64,13 @@ class SSFetcher(threading.Thread):
                         s = [item for sublist in s for item in sublist]
 
                 # Standard dialogue preprocessing
-                if not self.skip_utterance:
-                    # Append only if it is shorter than max_len
-                    if diter.max_len == -1 or len(s) <= diter.max_len:
-                        dialogues.append([s, self.offset, self.reshuffle_count])
-
-                # Skip-utterance preprocessing
-                else:
+                if self.skip_utterance:
                     s = copy.deepcopy(s)
                     eos_indices = numpy.where(numpy.asarray(s) == self.eos_sym)[0]
 
-                    if not s[0] == self.eos_sym:
+                    if s[0] != self.eos_sym:
                         eos_indices = numpy.insert(eos_indices, 0, [self.eos_sym])
-                    if not s[-1] == self.eos_sym:
+                    if s[-1] != self.eos_sym:
                         eos_indices = numpy.append(eos_indices, [self.eos_sym])
                     if len(eos_indices) > 2:
                         # Compute forward and backward targets
@@ -88,11 +82,12 @@ class SSFetcher(threading.Thread):
 
                         # Sometimes an end-of-utterance token is missing at the end.
                         # Therefore, we need to insert it here.
-                        if s_backward_a[-1] == self.eos_sym or s_backward_b[0] == self.eos_sym:
-                            s_backward = s_backward_a + s_backward_b
-                        else:
-                            s_backward = s_backward_a + [self.eos_sym] + s_backward_b
-
+                        s_backward = (
+                            s_backward_a + s_backward_b
+                            if s_backward_a[-1] == self.eos_sym
+                            or s_backward_b[0] == self.eos_sym
+                            else s_backward_a + [self.eos_sym] + s_backward_b
+                        )
                     else:
                         s_forward = [self.eos_sym]
                         s_backward = [self.eos_sym]
@@ -103,14 +98,14 @@ class SSFetcher(threading.Thread):
                             dialogues.append([s_forward, self.offset, self.reshuffle_count])
                         if diter.max_len == -1 or len(s_backward) <= diter.max_len:
                             dialogues.append([s_backward, self.offset, self.reshuffle_count])
-                    else:
-                        # Append only if it is shorter than max_len
-                        if self.rng.randint(0, 2) == 0:
-                            if diter.max_len == -1 or len(s_forward) <= diter.max_len:
-                                dialogues.append([s_forward, self.offset, self.reshuffle_count])
-                        else:
-                            if diter.max_len == -1 or len(s_backward) <= diter.max_len:
-                                dialogues.append([s_backward, self.offset, self.reshuffle_count])
+                    elif self.rng.randint(0, 2) == 0:
+                        if diter.max_len == -1 or len(s_forward) <= diter.max_len:
+                            dialogues.append([s_forward, self.offset, self.reshuffle_count])
+                    elif diter.max_len == -1 or len(s_backward) <= diter.max_len:
+                        dialogues.append([s_backward, self.offset, self.reshuffle_count])
+
+                elif diter.max_len == -1 or len(s) <= diter.max_len:
+                    dialogues.append([s, self.offset, self.reshuffle_count])
 
                 self.offset += 1
 

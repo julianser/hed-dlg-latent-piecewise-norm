@@ -7,10 +7,7 @@ from collections import OrderedDict
 PRINT_VARS = True
 
 def DPrint(name, var):
-    if PRINT_VARS is False:
-        return var
-
-    return theano.printing.Print(name)(var)
+    return var if PRINT_VARS is False else theano.printing.Print(name)(var)
 
 def sharedX(value, name=None, borrow=False, dtype=None):
     if dtype is None:
@@ -28,7 +25,7 @@ def Adagrad(grads, lr):
         # sum_square_grad := \sum g^2
         sum_square_grad = sharedX(param.get_value() * 0.)
         if param.name is not None:
-            sum_square_grad.name = 'sum_square_grad_' + param.name
+            sum_square_grad.name = f'sum_square_grad_{param.name}'
 
         # Accumulate gradient
         new_sum_squared_grad = sum_square_grad + T.sqr(grads[param])
@@ -50,8 +47,8 @@ def Adadelta(grads, decay=0.95, epsilon=1e-6):
         mean_square_dx = sharedX(param.get_value() * 0.)
 
         if param.name is not None:
-            mean_square_grad.name = 'mean_square_grad_' + param.name
-            mean_square_dx.name = 'mean_square_dx_' + param.name
+            mean_square_grad.name = f'mean_square_grad_{param.name}'
+            mean_square_dx.name = f'mean_square_dx_{param.name}'
 
         # Accumulate gradient
         new_mean_squared_grad = (
@@ -91,7 +88,7 @@ def RMSProp(grads, lr, decay=0.95, eta=0.9, epsilon=1e-6):
         if param.name is None:
             raise ValueError("Model parameters must be named.")
 
-        mean_square_grad.name = 'mean_square_grad_' + param.name
+        mean_square_grad.name = f'mean_square_grad_{param.name}'
 
         # Accumulate gradient
 
@@ -142,11 +139,7 @@ def OrthogonalInit(rng, sizeX, sizeY, sparsity=-1, scale=1):
 
     assert sizeX == sizeY, 'for orthogonal init, sizeX == sizeY'
 
-    if sparsity < 0:
-        sparsity = sizeY
-    else:
-        sparsity = numpy.minimum(sizeY, sparsity)
-
+    sparsity = sizeY if sparsity < 0 else numpy.minimum(sizeY, sparsity)
     values = numpy.zeros((sizeX, sizeY), dtype=theano.config.floatX)
     for dx in xrange(sizeX):
         perm = rng.permutation(sizeY)
@@ -168,10 +161,7 @@ def GrabProbs(classProbs, target, gRange=None):
     else:
         classProbs = classProbs
 
-    if target.ndim > 1:
-        tflat = target.flatten()
-    else:
-        tflat = target
+    tflat = target.flatten() if target.ndim > 1 else target
     return T.diag(classProbs.T[tflat])
 
 def NormalInit(rng, sizeX, sizeY, scale=0.01, sparsity=-1):
@@ -232,8 +222,8 @@ def NormalizationOperator(normop_type, x, gamma, mask, estimated_mean=0.0, estim
             return RecurrentBatchNormalization(x, gamma, mask, estimated_mean=0.0, estimated_var=1.0)
     elif normop_type.upper() == 'LN':
         return LayerNormalization(x, gamma, mask, estimated_mean=0.0, estimated_var=1.0)
-    elif normop_type.upper() == 'NONE' or normop_type.upper() == '':
-        assert x.ndim == 3 or x.ndim == 2
+    elif normop_type.upper() in ['NONE', '']:
+        assert x.ndim in [3, 2]
 
         output = x + 0.0*gamma
         if x.ndim == 3:
@@ -310,7 +300,7 @@ def RecurrentBatchNormalization(x, gamma, mask, estimated_mean=0.0, estimated_va
 # where we assume variable has shape (time x batch example x hidden units) or (batch example x hidden units).
 # Similar to batch normalization, the function also returns the mean and variance across hidden units.
 def LayerNormalization(x, gamma, mask, estimated_mean=0.0, estimated_var=1.0):
-    assert x.ndim == 3 or x.ndim == 2
+    assert x.ndim in [3, 2]
     if x.ndim == 3:
         x_mean = T.mean(x, axis=2).dimshuffle(0, 1, 'x')
         x_var = T.var(x, axis=2).dimshuffle(0, 1, 'x')
@@ -335,7 +325,9 @@ def BatchedDot(x, y, last_axis=False):
         elif x.ndim == 4:
             shuffled_x = x.dimshuffle(3,0,1,2)
         else:
-            raise ValueError('BatchedDot inputs must have between 2-4 dimensions, but x has ' + str(x.ndim) + ' dimensions')
+            raise ValueError(
+                f'BatchedDot inputs must have between 2-4 dimensions, but x has {str(x.ndim)} dimensions'
+            )
 
         if y.ndim == 2:
             shuffled_y = y.dimshuffle(1,0)
@@ -344,7 +336,9 @@ def BatchedDot(x, y, last_axis=False):
         elif y.ndim == 4:
             shuffled_y = y.dimshuffle(3,0,1,2)
         else:
-            raise ValueError('BatchedDot inputs must have between 2-4 dimensions, but y has ' + str(y.ndim) + ' dimensions')
+            raise ValueError(
+                f'BatchedDot inputs must have between 2-4 dimensions, but y has {str(y.ndim)} dimensions'
+            )
 
         dot = T.batched_dot(shuffled_x, shuffled_y)
         if dot.ndim == 2:

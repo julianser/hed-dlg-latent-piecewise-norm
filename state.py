@@ -3,278 +3,90 @@ import cPickle
 import os
 
 def prototype_state():
-    state = {}
-
-    # ----- CONSTANTS -----
-    # Random seed
-    state['seed'] = 1234
-    
-    # Logging level
-    state['level'] = 'DEBUG'
-
-    # Out-of-vocabulary token string
-    state['oov'] = '<unk>'
-    
-    # These are end-of-sequence marks
-    state['end_sym_utterance'] = '</s>'
-
-    # Special tokens need to be defined here, because model architecture may adapt depending on these
-    state['unk_sym'] = 0 # Unknown word token <unk>
-    state['eos_sym'] = 1 # end-of-utterance symbol </s>
-    state['eod_sym'] = 2 # end-of-dialogue symbol </d>
-    state['first_speaker_sym'] = 3 # first speaker symbol <first_speaker>
-    state['second_speaker_sym'] = 4 # second speaker symbol <second_speaker>
-    state['third_speaker_sym'] = 5 # third speaker symbol <third_speaker>
-    state['minor_speaker_sym'] = 6 # minor speaker symbol <minor_speaker>
-    state['voice_over_sym'] = 7 # voice over symbol <voice_over>
-    state['off_screen_sym'] = 8 # off screen symbol <off_screen>
-    state['pause_sym'] = 9 # pause symbol <pause>
-
-
-    # ----- MODEL ARCHITECTURE -----
-    # If this flag is on, the hidden state between RNNs in subsequences is always initialized to zero.
-    # Set this to reset all RNN hidden states between 'max_grad_steps' time steps
-    state['reset_hidden_states_between_subsequences'] = False
-
-    # If this flag is on, the maxout activation function will be applied to the utterance decoders output unit.
-    # This requires qdim_decoder = 2x rankdim
-    state['maxout_out'] = False
-
-    # If this flag is on, a one-layer MLP with linear activation function will applied
-    # on the utterance decoder hidden state before outputting the distribution over words.
-    state['deep_utterance_decoder_out'] = True
-
-    # If this flag is on, there will be an extra MLP between utterance and dialogue encoder
-    state['deep_dialogue_encoder_input'] = False
-
-    # Default and recommended setting is: tanh.
-    # The utterance encoder and utterance decoder activation function
-    state['sent_rec_activation'] = 'lambda x: T.tanh(x)'
-    # The dialogue encoder activation function
-    state['dialogue_rec_activation'] = 'lambda x: T.tanh(x)'
-    
-    # Determines how to input the utterance encoder and dialogue encoder into the utterance decoder RNN hidden state:
-    #  - 'first': initializes first hidden state of decoder using encoders
-    #  - 'all': initializes first hidden state of decoder using encoders, 
-    #            and inputs all hidden states of decoder using encoders
-    #  - 'selective': initializes first hidden state of decoder using encoders, 
-    #                 and inputs all hidden states of decoder using encoders.
-    #                 Furthermore, a gating function is applied to the encoder input 
-    #                 to turn off certain dimensions if necessary.
-    #
-    # Experiments show that 'all' is most effective.
-    state['decoder_bias_type'] = 'all' 
-
-    # Define the gating function for the three RNNs.
-    state['utterance_encoder_gating'] = 'GRU' # Supports 'None' and 'GRU'
-    state['dialogue_encoder_gating'] = 'GRU' # Supports 'None' and 'GRU'
-    state['utterance_decoder_gating'] = 'GRU' # Supports 'None', 'BOW' (Bag of Words), 'GRU' and 'LSTM'
-
-    # If this flag is on, two utterances encoders (one forward and one backward) will be used,
-    # otherwise only a forward utterance encoder is used.
-    state['bidirectional_utterance_encoder'] = False
-
-    # If this flag is on, there will be a direct connection between utterance encoder and utterance decoder RNNs.
-    state['direct_connection_between_encoders_and_decoder'] = False
-
-    # If this flag is on, there will be an extra MLP between utterance encoder and utterance decoder.
-    state['deep_direct_connection'] = False
-
-    # If the 'direct_connection_between_encoders_and_decoder' is on, then enabling this flag will
-    # change the model so that it does not use the dialogue encoder (context encoder)
-    state['disable_dialogue_encoder'] = False
-
-
-    # If this flag is on, the model will collaps to a standard RNN:
-    # 1) The utterance+dialogue encoder input to the utterance decoder will be zero
-    # 2) The utterance decoder will never be reset
-    # Note this model will always be initialized with a hidden state equal to zero.
-    state['collaps_to_standard_rnn'] = False
-
-    # If this flag is on, the utterance decoder will be reset after each end-of-utterance token.
-    state['reset_utterance_decoder_at_end_of_utterance'] = True
-
-    # If this flag is on, the utterance encoder will be reset after each end-of-utterance token.
-    state['reset_utterance_encoder_at_end_of_utterance'] = False
-
-
-    # ----- HIDDEN LAYER DIMENSIONS -----
-    # Dimensionality of (word-level) utterance encoder hidden state
-    state['qdim_encoder'] = 512
-    # Dimensionality of (word-level) utterance decoder (RNN which generates output) hidden state
-    state['qdim_decoder'] = 512
-    # Dimensionality of (utterance-level) context encoder hidden layer 
-    state['sdim'] = 1000
-    # Dimensionality of low-rank word embedding approximation
-    state['rankdim'] = 256
-
-
-    # ----- LATENT VARIABLES WITH VARIATIONAL LEARNING -----
-    # If this flag is on, a Gaussian latent variable is added at the beginning of each utterance.
-    # The utterance decoder will be conditioned on this latent variable,
-    # and the model will be trained using the variational lower bound. 
-    # See, for example, the variational auto-encoder by Kingma et al. (2013).
-    state['add_latent_gaussian_per_utterance'] = False
-
-    # This flag will condition the latent variables on the dialogue encoder
-    state['condition_latent_variable_on_dialogue_encoder'] = False
-    # This flag will condition the latent variable on the DCGM (mean pooling over words) encoder.
-    # This will replace the conditioning on the utterance encoder.
-    # If the flag is false, the latent variable will be conditioned on the utterance encoder RNN.
-    state['condition_posterior_latent_variable_on_dcgm_encoder'] = False
-    # Dimensionality of Gaussian latent variable, which has diagonal covariance matrix.
-    state['latent_gaussian_per_utterance_dim'] = 10
-
-    # This is a constant by which the diagonal covariance matrix is scaled.
-    # By setting it to a high number (e.g. 1 or 10),
-    # the KL divergence will be relatively low at the beginning of training.
-    state['scale_latent_gaussian_variable_variances'] = 10
-    state['min_latent_gaussian_variable_variances'] = 0.01
-    state['max_latent_gaussian_variable_variances'] = 10.0
-
-
-
-
-
-    # If this flag is on, the utterance decoder will ONLY be conditioned on the Gaussian latent variable.
-    state['condition_decoder_only_on_latent_variable'] = False
-
-
-    # If this flag is on, a piecewise latent variable is added at the beginning of each utterance.
-    # The utterance decoder will be conditioned on this latent variable,
-    # and the model will be trained using the variational lower bound. 
-    # See, for example, the variational auto-encoder by Kingma et al. (2013).
-    state['add_latent_piecewise_per_utterance'] = False
-
-    # If this flag is on, the posterior piecewise distribution will be interpolated
-    # with the prior distribution using a linear gating mechanism.
-    state['gate_latent_piecewise_per_utterance'] = True
-
-
-    state['latent_piecewise_alpha_variables'] = 5
-
-    # This is a constant by which the prior piecewise alpha parameters are scaled.
-    # By setting it to a number in the range (2.0, 10) the piecewise posterior distributions will
-    # be free to change appropriately to accomodate the real posterior,
-    # while still leaving some probability mass around 0.5 for the variable to change.
-    # With scale_latent_piecewise_variable_alpha=10, KL divergence cost is about 10% of overall cost initially.
-    # With scale_latent_piecewise_variable_alpha=1, KL divergence cost is about 1% of overall cost initially.
-
-    state['scale_latent_piecewise_variable_alpha_use_softplus'] = True
-
-    state['scale_latent_piecewise_variable_prior_alpha'] = 1.0
-    state['scale_latent_piecewise_variable_posterior_alpha'] = 1.0
-
-
-    state['latent_piecewise_per_utterance_dim'] = 10
-
-    # If parameter tying is enabled, a Gaussian convolution is applied to all the the alpha values.
-    # This makes the alpha values dependent upon each other, and guarantees that a single sample
-    # will update the weight of all the alpha values with higher gradients to nearby values.
-    # Julian: This only helped slightly in my intial experiments.
-    state['latent_piecewise_variable_alpha_parameter_tying'] = False
-    state['latent_piecewise_variable_alpha_parameter_tying_beta'] = 1.0
-
-    # If this flag is on, the input to the utterance decoder will be passed through
-    # a one-layer MLP with rectified linear units.
-    # If batch normalization or layer normalization is on,
-    # this will also ensure that the inputs to the decoder RNN are normalized.
-    state['deep_utterance_decoder_input'] = True
-
-
-    # If this flag is on, the KL-divergence term weight for the latent variables
-    # will be slowly increased from zero to one.
-    state['train_latent_variables_with_kl_divergence_annealing'] = False
-
-    # The KL-divergence term weight is increased by this parameter for every training batch.
-    # It is truncated to one. For example, 1.0/60000.0 means that at iteration 60000 the model
-    # will assign weight one to the KL-divergence term
-    # and thus only be maximizing the true variational bound from iteration 60000 and onward.
-    state['kl_divergence_annealing_rate'] = 1.0/60000.0
-
-    # If this flag is enabled, previous token input to the decoder RNN is replaced with 'unk' tokens at random.
-    state['decoder_drop_previous_input_tokens'] = False
-    # The rate at which the previous tokesn input to the decoder is kept (not set to 'unk').
-    # Setting this to zero effectively disables teacher-forcing in the model.
-    state['decoder_drop_previous_input_tokens_rate'] = 0.75
-
-
-    # If this flag is enabled, mean field inference with stochastic gradient descent is applied during test time.
-    # Julian: This didn't really make a big difference...
-    state['apply_meanfield_inference'] = False
-
-    # Word embedding initialization
-    state['initialize_from_pretrained_word_embeddings'] = False
-    state['pretrained_word_embeddings_file'] = ''
-    state['fix_pretrained_word_embeddings'] = False
-
-    # If this flag is on, the model will fix the parameters of the utterance encoder and dialogue encoder RNNs,
-    # as well as the word embeddings. NOTE: NOT APPLICABLE when the flag 'collaps_to_standard_rnn' is on.
-    state['fix_encoder_parameters'] = False
-
-    # If this flag is disabled, the model will not generate the first utterance in a dialogue.
-    # This is used for the debate dataset as well as the skip_utterance configuration.
-    state['do_generate_first_utterance'] = False
-
-    # If this flag is enabled, the data iterator is changed so that the model is conditioned 
-    # on exactly one utterance and predicts only one utterance; the utterance to predict is
-    # either the next utterance or the previous utterance in the dialogue.
-    # When this flag is on, it forces the 'do_generate_first_utterance' to be off.
-    state['skip_utterance'] = False
-
-    # If 'skip_utterance' flag is enabled together with this flag, the data iterator is changed so
-    # that the model always predicts both the previous and next utterances.
-    # Note, this will double the batch size!
-    state['skip_utterance_predict_both'] = False
-
-
-    # ----- TRAINING PROCEDURE -----
-    # Choose optimization algorithm (adam works well most of the time)
-    state['updater'] = 'adam'
-    # If this flag is on, NCE (Noise-Contrastive Estimation) will be used to train model.
-    # This is significantly faster for large vocabularies (e.g. more than 20K words), 
-    # but experiments show that this degrades performance.
-    state['use_nce'] = False
-    # Threshold to clip the gradient
-    state['cutoff'] = 0.01
-    # Learning rate. The rate 0.0002 seems to work well across many tasks with adam.
-    # Alternatively, the learning rate can be adjusted down (e.g. 0.00004) 
-    # to at the end of training to help the model converge well.
-    state['lr'] = 0.0002
-    # Early stopping configuration
-    state['patience'] = 20
-    state['cost_threshold'] = 1.003
-    # Batch size. If out of memory, modify this!
-    state['bs'] = 80
-    # Sort by length groups of  
-    state['sort_k_batches'] = 20
-    # Training examples will be split into subsequences.
-    # This parameter controls the maximum size of each subsequence.
-    # Gradients will be computed on the subsequence, and the last hidden state of all RNNs will
-    # be used to initialize the hidden state of the RNNs in the next subsequence.
-    state['max_grad_steps'] = 80
-    # Modify this in the prototype
-    state['save_dir'] = './'
-    # Frequency of training error reports (in number of batches)
-    state['train_freq'] = 10
-    # Validation frequency
-    state['valid_freq'] = 5000
-    # Number of batches to process
-    state['loop_iters'] = 3000000
-    # Maximum number of minutes to run
-    state['time_stop'] = 24*60*31
-    # Error level to stop at
-    state['minerr'] = -1
-    # Maximum dialogue length
-    state['max_len'] = -1
-
-    # The model can apply several normalization operators to the encoder hidden states:
-    # 'NONE': No normalization is applied.
-    # 'BN': Batch normalization is applied.
-    # 'LN': Layer normalization is applied.
-    #
-    # Note the normalization operators can only be applied to GRU encoders and feed-forward neural networks.
-    state['normop_type'] = 'LN'
+    state = {
+        'seed': 1234,
+        'level': 'DEBUG',
+        'oov': '<unk>',
+        'end_sym_utterance': '</s>',
+        'unk_sym': 0,
+        'eos_sym': 1,
+        'eod_sym': 2,
+        'first_speaker_sym': 3,
+        'second_speaker_sym': 4,
+        'third_speaker_sym': 5,
+        'minor_speaker_sym': 6,
+        'voice_over_sym': 7,
+        'off_screen_sym': 8,
+        'pause_sym': 9,
+        'reset_hidden_states_between_subsequences': False,
+        'maxout_out': False,
+        'deep_utterance_decoder_out': True,
+        'deep_dialogue_encoder_input': False,
+        'sent_rec_activation': 'lambda x: T.tanh(x)',
+        'dialogue_rec_activation': 'lambda x: T.tanh(x)',
+        'decoder_bias_type': 'all',
+        'utterance_encoder_gating': 'GRU',
+        'dialogue_encoder_gating': 'GRU',
+        'utterance_decoder_gating': 'GRU',
+        'bidirectional_utterance_encoder': False,
+        'direct_connection_between_encoders_and_decoder': False,
+        'deep_direct_connection': False,
+        'disable_dialogue_encoder': False,
+        'collaps_to_standard_rnn': False,
+        'reset_utterance_decoder_at_end_of_utterance': True,
+        'reset_utterance_encoder_at_end_of_utterance': False,
+        'qdim_encoder': 512,
+        'qdim_decoder': 512,
+        'sdim': 1000,
+        'rankdim': 256,
+        'add_latent_gaussian_per_utterance': False,
+        'condition_latent_variable_on_dialogue_encoder': False,
+        'condition_posterior_latent_variable_on_dcgm_encoder': False,
+        'latent_gaussian_per_utterance_dim': 10,
+        'scale_latent_gaussian_variable_variances': 10,
+        'min_latent_gaussian_variable_variances': 0.01,
+        'max_latent_gaussian_variable_variances': 10.0,
+        'condition_decoder_only_on_latent_variable': False,
+        'add_latent_piecewise_per_utterance': False,
+        'gate_latent_piecewise_per_utterance': True,
+        'latent_piecewise_alpha_variables': 5,
+        'scale_latent_piecewise_variable_alpha_use_softplus': True,
+        'scale_latent_piecewise_variable_prior_alpha': 1.0,
+        'scale_latent_piecewise_variable_posterior_alpha': 1.0,
+        'latent_piecewise_per_utterance_dim': 10,
+        'latent_piecewise_variable_alpha_parameter_tying': False,
+        'latent_piecewise_variable_alpha_parameter_tying_beta': 1.0,
+        'deep_utterance_decoder_input': True,
+        'train_latent_variables_with_kl_divergence_annealing': False,
+        'kl_divergence_annealing_rate': 1.0 / 60000.0,
+        'decoder_drop_previous_input_tokens': False,
+        'decoder_drop_previous_input_tokens_rate': 0.75,
+        'apply_meanfield_inference': False,
+        'initialize_from_pretrained_word_embeddings': False,
+        'pretrained_word_embeddings_file': '',
+        'fix_pretrained_word_embeddings': False,
+        'fix_encoder_parameters': False,
+        'do_generate_first_utterance': False,
+        'skip_utterance': False,
+        'skip_utterance_predict_both': False,
+        'updater': 'adam',
+        'use_nce': False,
+        'cutoff': 0.01,
+        'lr': 0.0002,
+        'patience': 20,
+        'cost_threshold': 1.003,
+        'bs': 80,
+        'sort_k_batches': 20,
+        'max_grad_steps': 80,
+        'save_dir': './',
+        'train_freq': 10,
+        'valid_freq': 5000,
+        'loop_iters': 3000000,
+        'time_stop': 24 * 60 * 31,
+        'minerr': -1,
+        'max_len': -1,
+        'normop_type': 'LN',
+    }
 
     if state['normop_type'] == 'BN':
         state['normop_gamma_init'] = 0.1
@@ -6285,9 +6097,7 @@ def prototype_book_SkipThought_NormOp_Baseline_Exp1():
 
 
 def prototype_book_SkipThought_NormOp_Baseline_Exp2():
-    state = prototype_book_SkipThought_NormOp()
-
-    return state
+    return prototype_book_SkipThought_NormOp()
 
 
 def prototype_book_SkipThought_NormOp_Baseline_Exp3():

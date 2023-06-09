@@ -49,7 +49,13 @@ class LinearCombination(EncoderDecoderBase):
     """
 
     def init_params(self, cond_size, output_size, force_min_max_intervals, min_val, max_val):
-        self.W = add_to_params(self.params, theano.shared(value=np.ones((output_size,), dtype='float32'), name='W_x'+self.name))
+        self.W = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.ones((output_size,), dtype='float32'),
+                name=f'W_x{self.name}',
+            ),
+        )
 
         self.force_min_max_intervals = force_min_max_intervals
         self.min_val = min_val
@@ -72,22 +78,84 @@ class LinearCombination(EncoderDecoderBase):
 class OneLayerMLP(EncoderDecoderBase):
     def init_params(self, inp_size, hidden_size, output_size):
         # First layer
-        self.W1_in_act = add_to_params(self.params, theano.shared(value=NormalInit(self.rng, inp_size, hidden_size), name='W1_in_'+self.name))
-        self.b1_in_act = add_to_params(self.params, theano.shared(value=np.zeros((hidden_size,), dtype='float32'), name='b1_in_'+self.name))
+        self.W1_in_act = add_to_params(
+            self.params,
+            theano.shared(
+                value=NormalInit(self.rng, inp_size, hidden_size),
+                name=f'W1_in_{self.name}',
+            ),
+        )
+        self.b1_in_act = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.zeros((hidden_size,), dtype='float32'),
+                name=f'b1_in_{self.name}',
+            ),
+        )
 
         # First layer batch norm / layer norm parameters
-        self.normop_in_act_h1_gamma = add_to_params(self.params, theano.shared(value=self.normop_gamma_init*np.ones((hidden_size,), dtype='float32'), name='normop_in_act_h1_gamma_'+self.name))
-        self.normop_in_act_h1_mean = add_to_params(self.params, theano.shared(value=np.zeros((hidden_size,), dtype='float32'), name='normop_in_act_h1_mean_'+self.name))
-        self.normop_in_act_h1_var = add_to_params(self.params, theano.shared(value=(1e-7)*np.ones((hidden_size,), dtype='float32'), name='normop_in_act_h1_var_'+self.name))
+        self.normop_in_act_h1_gamma = add_to_params(
+            self.params,
+            theano.shared(
+                value=self.normop_gamma_init
+                * np.ones((hidden_size,), dtype='float32'),
+                name=f'normop_in_act_h1_gamma_{self.name}',
+            ),
+        )
+        self.normop_in_act_h1_mean = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.zeros((hidden_size,), dtype='float32'),
+                name=f'normop_in_act_h1_mean_{self.name}',
+            ),
+        )
+        self.normop_in_act_h1_var = add_to_params(
+            self.params,
+            theano.shared(
+                value=(1e-7) * np.ones((hidden_size,), dtype='float32'),
+                name=f'normop_in_act_h1_var_{self.name}',
+            ),
+        )
 
         # Output layer
-        self.W2_in_act = add_to_params(self.params, theano.shared(value=NormalInit(self.rng, hidden_size, output_size), name='W2_in_'+self.name))
-        self.b2_in_act = add_to_params(self.params, theano.shared(value=np.zeros((output_size,), dtype='float32'), name='b2_in_'+self.name))
+        self.W2_in_act = add_to_params(
+            self.params,
+            theano.shared(
+                value=NormalInit(self.rng, hidden_size, output_size),
+                name=f'W2_in_{self.name}',
+            ),
+        )
+        self.b2_in_act = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.zeros((output_size,), dtype='float32'),
+                name=f'b2_in_{self.name}',
+            ),
+        )
 
         # Output layer batch norm / layer norm parameters
-        self.normop_in_act_h2_gamma = add_to_params(self.params, theano.shared(value=self.normop_gamma_init*np.ones((output_size,), dtype='float32'), name='normop_in_act_h2_gamma_'+self.name))
-        self.normop_in_act_h2_mean = add_to_params(self.params, theano.shared(value=np.zeros((output_size,), dtype='float32'), name='normop_in_act_h2_mean_'+self.name))
-        self.normop_in_act_h2_var = add_to_params(self.params, theano.shared(value=(1e-7)*np.ones((output_size,), dtype='float32'), name='normop_in_act_h2_var_'+self.name))
+        self.normop_in_act_h2_gamma = add_to_params(
+            self.params,
+            theano.shared(
+                value=self.normop_gamma_init
+                * np.ones((output_size,), dtype='float32'),
+                name=f'normop_in_act_h2_gamma_{self.name}',
+            ),
+        )
+        self.normop_in_act_h2_mean = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.zeros((output_size,), dtype='float32'),
+                name=f'normop_in_act_h2_mean_{self.name}',
+            ),
+        )
+        self.normop_in_act_h2_var = add_to_params(
+            self.params,
+            theano.shared(
+                value=(1e-7) * np.ones((output_size,), dtype='float32'),
+                name=f'normop_in_act_h2_var_{self.name}',
+            ),
+        )
 
     def build_output(self, inp, bnmask):
         # Make sure bnmask is of type float32:
@@ -130,36 +198,160 @@ class OneLayerMLP(EncoderDecoderBase):
 class TwoLayerMLP(EncoderDecoderBase):
     def init_params(self, inp_size, hidden_size, output_size):
         # First layer
-        self.W1_in_tanh = add_to_params(self.params, theano.shared(value=NormalInit(self.rng, inp_size, hidden_size), name='W1_in_'+self.name))
-        self.b1_in_tanh = add_to_params(self.params, theano.shared(value=np.zeros((hidden_size,), dtype='float32'), name='b1_in_'+self.name))
-        self.W1_in_skip = add_to_params(self.params, theano.shared(value=NormalInit(self.rng, inp_size, hidden_size), name='W1_in_skip_'+self.name))
-        self.b1_in_skip = add_to_params(self.params, theano.shared(value=np.zeros((hidden_size,), dtype='float32'), name='b1_in_skip_'+self.name))
+        self.W1_in_tanh = add_to_params(
+            self.params,
+            theano.shared(
+                value=NormalInit(self.rng, inp_size, hidden_size),
+                name=f'W1_in_{self.name}',
+            ),
+        )
+        self.b1_in_tanh = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.zeros((hidden_size,), dtype='float32'),
+                name=f'b1_in_{self.name}',
+            ),
+        )
+        self.W1_in_skip = add_to_params(
+            self.params,
+            theano.shared(
+                value=NormalInit(self.rng, inp_size, hidden_size),
+                name=f'W1_in_skip_{self.name}',
+            ),
+        )
+        self.b1_in_skip = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.zeros((hidden_size,), dtype='float32'),
+                name=f'b1_in_skip_{self.name}',
+            ),
+        )
 
         # First layer batch norm / layer norm parameters
-        self.normop_in_tanh_h1_gamma = add_to_params(self.params, theano.shared(value=self.normop_gamma_init*np.ones((hidden_size,), dtype='float32'), name='normop_in_tanh_h1_gamma_'+self.name))
-        self.normop_in_tanh_h1_mean = add_to_params(self.params, theano.shared(value=np.zeros((hidden_size,), dtype='float32'), name='normop_in_tanh_h1_mean_'+self.name))
-        self.normop_in_tanh_h1_var = add_to_params(self.params, theano.shared(value=(1e-7)*np.ones((hidden_size,), dtype='float32'), name='normop_in_tanh_h1_var_'+self.name))
+        self.normop_in_tanh_h1_gamma = add_to_params(
+            self.params,
+            theano.shared(
+                value=self.normop_gamma_init
+                * np.ones((hidden_size,), dtype='float32'),
+                name=f'normop_in_tanh_h1_gamma_{self.name}',
+            ),
+        )
+        self.normop_in_tanh_h1_mean = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.zeros((hidden_size,), dtype='float32'),
+                name=f'normop_in_tanh_h1_mean_{self.name}',
+            ),
+        )
+        self.normop_in_tanh_h1_var = add_to_params(
+            self.params,
+            theano.shared(
+                value=(1e-7) * np.ones((hidden_size,), dtype='float32'),
+                name=f'normop_in_tanh_h1_var_{self.name}',
+            ),
+        )
 
-        self.normop_in_skip_h1_gamma = add_to_params(self.params, theano.shared(value=self.normop_gamma_init*np.ones((hidden_size,), dtype='float32'), name='normop_in_skip_h1_gamma_'+self.name))
-        self.normop_in_skip_h1_mean = add_to_params(self.params, theano.shared(value=np.zeros((hidden_size,), dtype='float32'), name='normop_in_skip_h1_mean_'+self.name))
-        self.normop_in_skip_h1_var = add_to_params(self.params, theano.shared(value=(1e-7)*np.ones((hidden_size,), dtype='float32'), name='normop_in_skip_h1_var_'+self.name))
+        self.normop_in_skip_h1_gamma = add_to_params(
+            self.params,
+            theano.shared(
+                value=self.normop_gamma_init
+                * np.ones((hidden_size,), dtype='float32'),
+                name=f'normop_in_skip_h1_gamma_{self.name}',
+            ),
+        )
+        self.normop_in_skip_h1_mean = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.zeros((hidden_size,), dtype='float32'),
+                name=f'normop_in_skip_h1_mean_{self.name}',
+            ),
+        )
+        self.normop_in_skip_h1_var = add_to_params(
+            self.params,
+            theano.shared(
+                value=(1e-7) * np.ones((hidden_size,), dtype='float32'),
+                name=f'normop_in_skip_h1_var_{self.name}',
+            ),
+        )
 
 
         # Second layer
-        self.W2_in_tanh = add_to_params(self.params, theano.shared(value=NormalInit(self.rng, hidden_size, output_size), name='W2_in_'+self.name))
-        self.b2_in_tanh = add_to_params(self.params, theano.shared(value=np.zeros((output_size,), dtype='float32'), name='b2_in_'+self.name))
+        self.W2_in_tanh = add_to_params(
+            self.params,
+            theano.shared(
+                value=NormalInit(self.rng, hidden_size, output_size),
+                name=f'W2_in_{self.name}',
+            ),
+        )
+        self.b2_in_tanh = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.zeros((output_size,), dtype='float32'),
+                name=f'b2_in_{self.name}',
+            ),
+        )
 
-        self.W2_in_skip = add_to_params(self.params, theano.shared(value=NormalInit(self.rng, hidden_size, output_size), name='W2_in_skip_'+self.name))
-        self.b2_in_skip = add_to_params(self.params, theano.shared(value=np.zeros((output_size,), dtype='float32'), name='b2_in_skip_'+self.name))
+        self.W2_in_skip = add_to_params(
+            self.params,
+            theano.shared(
+                value=NormalInit(self.rng, hidden_size, output_size),
+                name=f'W2_in_skip_{self.name}',
+            ),
+        )
+        self.b2_in_skip = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.zeros((output_size,), dtype='float32'),
+                name=f'b2_in_skip_{self.name}',
+            ),
+        )
 
         # Second layer batch norm / layer norm parameters
-        self.normop_in_tanh_h2_gamma = add_to_params(self.params, theano.shared(value=self.normop_gamma_init*np.ones((output_size,), dtype='float32'), name='normop_in_tanh_h2_gamma_'+self.name))
-        self.normop_in_tanh_h2_mean = add_to_params(self.params, theano.shared(value=np.zeros((output_size,), dtype='float32'), name='normop_in_tanh_h2_mean_'+self.name))
-        self.normop_in_tanh_h2_var = add_to_params(self.params, theano.shared(value=(1e-7)*np.ones((output_size,), dtype='float32'), name='normop_in_tanh_h2_var_'+self.name))
+        self.normop_in_tanh_h2_gamma = add_to_params(
+            self.params,
+            theano.shared(
+                value=self.normop_gamma_init
+                * np.ones((output_size,), dtype='float32'),
+                name=f'normop_in_tanh_h2_gamma_{self.name}',
+            ),
+        )
+        self.normop_in_tanh_h2_mean = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.zeros((output_size,), dtype='float32'),
+                name=f'normop_in_tanh_h2_mean_{self.name}',
+            ),
+        )
+        self.normop_in_tanh_h2_var = add_to_params(
+            self.params,
+            theano.shared(
+                value=(1e-7) * np.ones((output_size,), dtype='float32'),
+                name=f'normop_in_tanh_h2_var_{self.name}',
+            ),
+        )
 
-        self.normop_in_skip_h2_gamma = add_to_params(self.params, theano.shared(value=self.normop_gamma_init*np.ones((output_size,), dtype='float32'), name='normop_in_skip_h2_gamma_'+self.name))
-        self.normop_in_skip_h2_mean = add_to_params(self.params, theano.shared(value=np.zeros((output_size,), dtype='float32'), name='normop_in_skip_h2_mean_'+self.name))
-        self.normop_in_skip_h2_var = add_to_params(self.params, theano.shared(value=(1e-7)*np.ones((output_size,), dtype='float32'), name='normop_in_skip_h2_var_'+self.name))
+        self.normop_in_skip_h2_gamma = add_to_params(
+            self.params,
+            theano.shared(
+                value=self.normop_gamma_init
+                * np.ones((output_size,), dtype='float32'),
+                name=f'normop_in_skip_h2_gamma_{self.name}',
+            ),
+        )
+        self.normop_in_skip_h2_mean = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.zeros((output_size,), dtype='float32'),
+                name=f'normop_in_skip_h2_mean_{self.name}',
+            ),
+        )
+        self.normop_in_skip_h2_var = add_to_params(
+            self.params,
+            theano.shared(
+                value=(1e-7) * np.ones((output_size,), dtype='float32'),
+                name=f'normop_in_skip_h2_var_{self.name}',
+            ),
+        )
 
     def build_output(self, inp, bnmask):
         # Make sure bnmask is of type float32:
@@ -218,47 +410,259 @@ class UtteranceEncoder(EncoderDecoderBase):
         self.W_emb = word_embedding_param
 
         """ sent weights """
-        self.W_in = add_to_params(self.params, theano.shared(value=NormalInit(self.rng, self.rankdim, self.qdim_encoder), name='W_in_'+self.name))
-        self.W_hh = add_to_params(self.params, theano.shared(value=OrthogonalInit(self.rng, self.qdim_encoder, self.qdim_encoder), name='W_hh_'+self.name))
-        self.b_hh = add_to_params(self.params, theano.shared(value=np.zeros((self.qdim_encoder,), dtype='float32'), name='b_hh_'+self.name))
+        self.W_in = add_to_params(
+            self.params,
+            theano.shared(
+                value=NormalInit(self.rng, self.rankdim, self.qdim_encoder),
+                name=f'W_in_{self.name}',
+            ),
+        )
+        self.W_hh = add_to_params(
+            self.params,
+            theano.shared(
+                value=OrthogonalInit(
+                    self.rng, self.qdim_encoder, self.qdim_encoder
+                ),
+                name=f'W_hh_{self.name}',
+            ),
+        )
+        self.b_hh = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.zeros((self.qdim_encoder,), dtype='float32'),
+                name=f'b_hh_{self.name}',
+            ),
+        )
 
         # Initialize batch norm / layer norm parameters
-        self.normop_in_h_gamma = add_to_params(self.params, theano.shared(value=self.normop_gamma_init*np.ones((self.qdim_encoder,), dtype='float32'), name='normop_in_h_gamma_'+self.name))
-        self.normop_in_h_mean = add_to_params(self.params, theano.shared(value=np.zeros((self.normop_max_enc_seq, self.qdim_encoder), dtype='float32'), name='normop_in_h_mean_'+self.name))
-        self.normop_in_h_var = add_to_params(self.params, theano.shared(value=(1e-7)*np.ones((self.normop_max_enc_seq, self.qdim_encoder), dtype='float32'), name='normop_in_h_var_'+self.name))
+        self.normop_in_h_gamma = add_to_params(
+            self.params,
+            theano.shared(
+                value=self.normop_gamma_init
+                * np.ones((self.qdim_encoder,), dtype='float32'),
+                name=f'normop_in_h_gamma_{self.name}',
+            ),
+        )
+        self.normop_in_h_mean = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.zeros(
+                    (self.normop_max_enc_seq, self.qdim_encoder), dtype='float32'
+                ),
+                name=f'normop_in_h_mean_{self.name}',
+            ),
+        )
+        self.normop_in_h_var = add_to_params(
+            self.params,
+            theano.shared(
+                value=(1e-7)
+                * np.ones(
+                    (self.normop_max_enc_seq, self.qdim_encoder), dtype='float32'
+                ),
+                name=f'normop_in_h_var_{self.name}',
+            ),
+        )
 
 
-        self.normop_in_x_gamma = add_to_params(self.params, theano.shared(value=self.normop_gamma_init*np.ones((self.qdim_encoder,), dtype='float32'), name='normop_in_x_gamma_'+self.name))
-        self.normop_in_x_mean = add_to_params(self.params, theano.shared(value=np.zeros((self.normop_max_enc_seq, self.qdim_encoder), dtype='float32'), name='normop_in_x_mean_'+self.name))
-        self.normop_in_x_var = add_to_params(self.params, theano.shared(value=(1e-7)*np.ones((self.normop_max_enc_seq, self.qdim_encoder), dtype='float32'), name='normop_in_x_var_'+self.name))
+        self.normop_in_x_gamma = add_to_params(
+            self.params,
+            theano.shared(
+                value=self.normop_gamma_init
+                * np.ones((self.qdim_encoder,), dtype='float32'),
+                name=f'normop_in_x_gamma_{self.name}',
+            ),
+        )
+        self.normop_in_x_mean = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.zeros(
+                    (self.normop_max_enc_seq, self.qdim_encoder), dtype='float32'
+                ),
+                name=f'normop_in_x_mean_{self.name}',
+            ),
+        )
+        self.normop_in_x_var = add_to_params(
+            self.params,
+            theano.shared(
+                value=(1e-7)
+                * np.ones(
+                    (self.normop_max_enc_seq, self.qdim_encoder), dtype='float32'
+                ),
+                name=f'normop_in_x_var_{self.name}',
+            ),
+        )
 
 
-        
+
         if self.utterance_encoder_gating == "GRU":
-            self.W_in_r = add_to_params(self.params, theano.shared(value=NormalInit(self.rng, self.rankdim, self.qdim_encoder), name='W_in_r_'+self.name))
-            self.W_in_z = add_to_params(self.params, theano.shared(value=NormalInit(self.rng, self.rankdim, self.qdim_encoder), name='W_in_z_'+self.name))
-            self.W_hh_r = add_to_params(self.params, theano.shared(value=OrthogonalInit(self.rng, self.qdim_encoder, self.qdim_encoder), name='W_hh_r_'+self.name))
-            self.W_hh_z = add_to_params(self.params, theano.shared(value=OrthogonalInit(self.rng, self.qdim_encoder, self.qdim_encoder), name='W_hh_z_'+self.name))
-            self.b_z = add_to_params(self.params, theano.shared(value=np.zeros((self.qdim_encoder,), dtype='float32'), name='b_z_'+self.name))
-            self.b_r = add_to_params(self.params, theano.shared(value=np.zeros((self.qdim_encoder,), dtype='float32'), name='b_r_'+self.name))
+            self.W_in_r = add_to_params(
+                self.params,
+                theano.shared(
+                    value=NormalInit(self.rng, self.rankdim, self.qdim_encoder),
+                    name=f'W_in_r_{self.name}',
+                ),
+            )
+            self.W_in_z = add_to_params(
+                self.params,
+                theano.shared(
+                    value=NormalInit(self.rng, self.rankdim, self.qdim_encoder),
+                    name=f'W_in_z_{self.name}',
+                ),
+            )
+            self.W_hh_r = add_to_params(
+                self.params,
+                theano.shared(
+                    value=OrthogonalInit(
+                        self.rng, self.qdim_encoder, self.qdim_encoder
+                    ),
+                    name=f'W_hh_r_{self.name}',
+                ),
+            )
+            self.W_hh_z = add_to_params(
+                self.params,
+                theano.shared(
+                    value=OrthogonalInit(
+                        self.rng, self.qdim_encoder, self.qdim_encoder
+                    ),
+                    name=f'W_hh_z_{self.name}',
+                ),
+            )
+            self.b_z = add_to_params(
+                self.params,
+                theano.shared(
+                    value=np.zeros((self.qdim_encoder,), dtype='float32'),
+                    name=f'b_z_{self.name}',
+                ),
+            )
+            self.b_r = add_to_params(
+                self.params,
+                theano.shared(
+                    value=np.zeros((self.qdim_encoder,), dtype='float32'),
+                    name=f'b_r_{self.name}',
+                ),
+            )
 
 
             # Initialize batch norm / layer norm parameters
-            self.normop_r_h_gamma = add_to_params(self.params, theano.shared(value=self.normop_gamma_init*np.ones((self.qdim_encoder,), dtype='float32'), name='normop_r_h_gamma_'+self.name))
-            self.normop_r_h_mean = add_to_params(self.params, theano.shared(value=np.zeros((self.normop_max_enc_seq, self.qdim_encoder), dtype='float32'), name='normop_r_h_mean_'+self.name))
-            self.normop_r_h_var = add_to_params(self.params, theano.shared(value=(1e-7)*np.ones((self.normop_max_enc_seq, self.qdim_encoder), dtype='float32'), name='normop_r_h_var_'+self.name))
+            self.normop_r_h_gamma = add_to_params(
+                self.params,
+                theano.shared(
+                    value=self.normop_gamma_init
+                    * np.ones((self.qdim_encoder,), dtype='float32'),
+                    name=f'normop_r_h_gamma_{self.name}',
+                ),
+            )
+            self.normop_r_h_mean = add_to_params(
+                self.params,
+                theano.shared(
+                    value=np.zeros(
+                        (self.normop_max_enc_seq, self.qdim_encoder),
+                        dtype='float32',
+                    ),
+                    name=f'normop_r_h_mean_{self.name}',
+                ),
+            )
+            self.normop_r_h_var = add_to_params(
+                self.params,
+                theano.shared(
+                    value=(1e-7)
+                    * np.ones(
+                        (self.normop_max_enc_seq, self.qdim_encoder),
+                        dtype='float32',
+                    ),
+                    name=f'normop_r_h_var_{self.name}',
+                ),
+            )
 
-            self.normop_r_x_gamma = add_to_params(self.params, theano.shared(value=self.normop_gamma_init*np.ones((self.qdim_encoder,), dtype='float32'), name='normop_r_x_gamma_'+self.name))
-            self.normop_r_x_mean = add_to_params(self.params, theano.shared(value=np.zeros((self.normop_max_enc_seq, self.qdim_encoder), dtype='float32'), name='normop_r_x_mean_'+self.name))
-            self.normop_r_x_var = add_to_params(self.params, theano.shared(value=(1e-7)*np.ones((self.normop_max_enc_seq, self.qdim_encoder), dtype='float32'), name='normop_r_x_var_'+self.name))
+            self.normop_r_x_gamma = add_to_params(
+                self.params,
+                theano.shared(
+                    value=self.normop_gamma_init
+                    * np.ones((self.qdim_encoder,), dtype='float32'),
+                    name=f'normop_r_x_gamma_{self.name}',
+                ),
+            )
+            self.normop_r_x_mean = add_to_params(
+                self.params,
+                theano.shared(
+                    value=np.zeros(
+                        (self.normop_max_enc_seq, self.qdim_encoder),
+                        dtype='float32',
+                    ),
+                    name=f'normop_r_x_mean_{self.name}',
+                ),
+            )
+            self.normop_r_x_var = add_to_params(
+                self.params,
+                theano.shared(
+                    value=(1e-7)
+                    * np.ones(
+                        (self.normop_max_enc_seq, self.qdim_encoder),
+                        dtype='float32',
+                    ),
+                    name=f'normop_r_x_var_{self.name}',
+                ),
+            )
 
-            self.normop_z_h_gamma = add_to_params(self.params, theano.shared(value=self.normop_gamma_init*np.ones((self.qdim_encoder,), dtype='float32'), name='normop_z_h_gamma_'+self.name))
-            self.normop_z_h_mean = add_to_params(self.params, theano.shared(value=np.zeros((self.normop_max_enc_seq, self.qdim_encoder), dtype='float32'), name='normop_z_h_mean_'+self.name))
-            self.normop_z_h_var = add_to_params(self.params, theano.shared(value=(1e-7)*np.ones((self.normop_max_enc_seq, self.qdim_encoder), dtype='float32'), name='normop_z_h_var_'+self.name))
+            self.normop_z_h_gamma = add_to_params(
+                self.params,
+                theano.shared(
+                    value=self.normop_gamma_init
+                    * np.ones((self.qdim_encoder,), dtype='float32'),
+                    name=f'normop_z_h_gamma_{self.name}',
+                ),
+            )
+            self.normop_z_h_mean = add_to_params(
+                self.params,
+                theano.shared(
+                    value=np.zeros(
+                        (self.normop_max_enc_seq, self.qdim_encoder),
+                        dtype='float32',
+                    ),
+                    name=f'normop_z_h_mean_{self.name}',
+                ),
+            )
+            self.normop_z_h_var = add_to_params(
+                self.params,
+                theano.shared(
+                    value=(1e-7)
+                    * np.ones(
+                        (self.normop_max_enc_seq, self.qdim_encoder),
+                        dtype='float32',
+                    ),
+                    name=f'normop_z_h_var_{self.name}',
+                ),
+            )
 
-            self.normop_z_x_gamma = add_to_params(self.params, theano.shared(value=self.normop_gamma_init*np.ones((self.qdim_encoder,), dtype='float32'), name='normop_z_x_gamma_'+self.name))
-            self.normop_z_x_mean = add_to_params(self.params, theano.shared(value=np.zeros((self.normop_max_enc_seq, self.qdim_encoder), dtype='float32'), name='normop_z_x_mean_'+self.name))
-            self.normop_z_x_var = add_to_params(self.params, theano.shared(value=(1e-7)*np.ones((self.normop_max_enc_seq, self.qdim_encoder), dtype='float32'), name='normop_z_x_var_'+self.name))
+            self.normop_z_x_gamma = add_to_params(
+                self.params,
+                theano.shared(
+                    value=self.normop_gamma_init
+                    * np.ones((self.qdim_encoder,), dtype='float32'),
+                    name=f'normop_z_x_gamma_{self.name}',
+                ),
+            )
+            self.normop_z_x_mean = add_to_params(
+                self.params,
+                theano.shared(
+                    value=np.zeros(
+                        (self.normop_max_enc_seq, self.qdim_encoder),
+                        dtype='float32',
+                    ),
+                    name=f'normop_z_x_mean_{self.name}',
+                ),
+            )
+            self.normop_z_x_var = add_to_params(
+                self.params,
+                theano.shared(
+                    value=(1e-7)
+                    * np.ones(
+                        (self.normop_max_enc_seq, self.qdim_encoder),
+                        dtype='float32',
+                    ),
+                    name=f'normop_z_x_var_{self.name}',
+                ),
+            )
 
 
     # This function takes as input word indices and extracts their corresponding word embeddings
@@ -462,10 +866,20 @@ class DCGMEncoder(EncoderDecoderBase):
         # Initialzie W_emb to given word embeddings
         assert(word_embedding_param != None)
         self.W_emb = word_embedding_param
-        self.Wq_in = add_to_params(self.params, \
-                                   theano.shared(value=NormalInit(self.rng, self.rankdim, self.output_dim), name='dcgm_Wq_in'+self.name))
-        self.bq_in = add_to_params(self.params, \
-                                   theano.shared(value=np.zeros((self.output_dim,), dtype='float32'), name='dcgm_bq_in'+self.name))
+        self.Wq_in = add_to_params(
+            self.params,
+            theano.shared(
+                value=NormalInit(self.rng, self.rankdim, self.output_dim),
+                name=f'dcgm_Wq_in{self.name}',
+            ),
+        )
+        self.bq_in = add_to_params(
+            self.params,
+            theano.shared(
+                value=np.zeros((self.output_dim,), dtype='float32'),
+                name=f'dcgm_bq_in{self.name}',
+            ),
+        )
 
     def mean_step(self, x_t, m_t, *args):
         args = iter(args)
@@ -497,34 +911,25 @@ class DCGMEncoder(EncoderDecoderBase):
         return self.W_emb[x]
 
     def build_encoder(self, x, xmask=None, prev_state=None, **kwargs):
-        one_step = False
-        if len(kwargs):
-            one_step = True
-
-        if x.ndim == 2:
-            batch_size = x.shape[1]
-        else:
-            batch_size = 1
-
-        # if it is not one_step then we initialize everything to previous state or zero  
-        if not one_step:
-            if prev_state:
-                avg_0, n_0 = prev_state
-            else:
-                avg_0 = T.alloc(np.float32(0), batch_size, self.rankdim)
-                n_0 = T.alloc(np.float32(0), batch_size)
-
-        # in sampling mode (i.e. one step) we require 
-        else:
+        one_step = bool(len(kwargs))
+        batch_size = x.shape[1] if x.ndim == 2 else 1
+        # if it is not one_step then we initialize everything to previous state or zero
+        if one_step:
             # in this case x.ndim != 2
             assert x.ndim != 2
             assert 'prev_avg' in kwargs 
             avg_0 = kwargs['prev_avg']
 
-        
+
+        elif prev_state:
+            avg_0, n_0 = prev_state
+        else:
+            avg_0 = T.alloc(np.float32(0), batch_size, self.rankdim)
+            n_0 = T.alloc(np.float32(0), batch_size)
+
         # in sampling mode (i.e. one step) we require 
         xe = self.approx_embedder(x)
-        if xmask == None:
+        if xmask is None:
             xmask = T.neq(x, self.eos_sym)
 
         if xmask.ndim == 2:
@@ -543,10 +948,10 @@ class DCGMEncoder(EncoderDecoderBase):
         if not one_step: 
             _res, _ = theano.scan(f_enc,
                               sequences=[xe, rolled_xmask],\
-                              outputs_info=o_enc_info)
+                                  outputs_info=o_enc_info)
         else: # Make just one step further
             _res, _ = f_enc(xe, rolled_xmask, [avg_0, n_0])
-        
+
         avg, n = _res[0], _res[1]
 
         # Linear activation

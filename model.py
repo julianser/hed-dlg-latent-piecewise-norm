@@ -33,17 +33,19 @@ class Model(object):
             load_parameter = True
             for string_to_ignore in parameter_strings_to_ignore:
                 if string_to_ignore in p.name:
-                     logger.debug('Initializing parameter {} as in new model'.format(p.name))
-                     load_parameter = False
+                    logger.debug(f'Initializing parameter {p.name} as in new model')
+                    load_parameter = False
 
             if load_parameter:
                 if p.name in vals:
                     logger.debug('Loading {} of {}'.format(p.name, p.get_value(borrow=True).shape))
                     if p.get_value().shape != vals[p.name].shape:
-                        raise Exception('Shape mismatch: {} != {} for {}'.format(p.get_value().shape, vals[p.name].shape, p.name))
+                        raise Exception(
+                            f'Shape mismatch: {p.get_value().shape} != {vals[p.name].shape} for {p.name}'
+                        )
                     p.set_value(vals[p.name])
                 else:
-                    logger.error('No parameter {} given: default initialization used'.format(p.name))
+                    logger.error(f'No parameter {p.name} given: default initialization used')
                     unknown = set(vals.keys()) - {p.name for p in self.params}
                     if len(unknown):
-                        logger.error('Unknown parameters {} given'.format(unknown))
+                        logger.error(f'Unknown parameters {unknown} given')

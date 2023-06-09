@@ -70,7 +70,7 @@ def compute_encodings(joined_contexts, model, model_compute_encoding, output_sec
             context[:context_lengths[idx], idx] = joined_contexts[idx]
         else:
             # If context is longer tham max context, truncate it and force the end-of-utterance token at the end
-            context[:seqlen, idx] = joined_contexts[idx][0:seqlen]
+            context[:seqlen, idx] = joined_contexts[idx][:seqlen]
             context[seqlen-1, idx] = model.eos_sym
             context_lengths[idx] = seqlen
 
@@ -88,24 +88,20 @@ def compute_encodings(joined_contexts, model, model_compute_encoding, output_sec
 
     encoder_states = model_compute_encoding(context, reversed_context, seqlen+1)
     hidden_states = encoder_states[-2] # hidden state for the "context" encoder, h_s,
-                                       # and last hidden state of the utterance "encoder", h
-    #hidden_states = encoder_states[-1] # mean for the stochastic latent variable, z
-
-    if output_second_last_state:
-        second_last_hidden_state = numpy.zeros((hidden_states.shape[1], hidden_states.shape[2]), dtype='float64')
-        for i in range(hidden_states.shape[1]):
-            second_last_hidden_state[i, :] = hidden_states[second_last_utterance_position[i], i, :]
-
-        return second_last_hidden_state
-    else:
+    if not output_second_last_state:
         return hidden_states[-1, :, :]
+    second_last_hidden_state = numpy.zeros((hidden_states.shape[1], hidden_states.shape[2]), dtype='float64')
+    for i in range(hidden_states.shape[1]):
+        second_last_hidden_state[i, :] = hidden_states[second_last_utterance_position[i], i, :]
+
+    return second_last_hidden_state
 
 
 def main(model_prefix, dialogue_file, use_second_last_state):
     state = prototype_state()
 
-    state_path = model_prefix + "_state.pkl"
-    model_path = model_prefix + "_model.npz"
+    state_path = f"{model_prefix}_state.pkl"
+    model_path = f"{model_prefix}_model.npz"
 
     with open(state_path) as src:
         state.update(cPickle.load(src))
@@ -115,18 +111,14 @@ def main(model_prefix, dialogue_file, use_second_last_state):
     state['bs'] = 10
 
     model = DialogEncoderDecoder(state) 
-    
-    if os.path.isfile(model_path):
-        logger.debug("Loading previous model")
-        model.load(model_path)
-    else:
+
+    if not os.path.isfile(model_path):
         raise Exception("Must specify a valid model path")
 
-    contexts = [[]]
+    logger.debug("Loading previous model")
+    model.load(model_path)
     lines = open(dialogue_file, "r").readlines()
-    if len(lines):
-        contexts = [x.strip() for x in lines]
-
+    contexts = [x.strip() for x in lines] if len(lines) else [[]]
     model_compute_encoding = model.build_encoder_function()
     dialogue_encodings = []
 
@@ -155,18 +147,14 @@ def main(model_prefix, dialogue_file, use_second_last_state):
             batch_index = batch_index + 1
             logger.debug("[COMPUTE] - Got batch %d / %d" % (batch_index, batch_total))
             encs = compute_encodings(joined_contexts, model, model_compute_encoding, use_second_last_state)
-            for i in range(len(encs)):
-                dialogue_encodings.append(encs[i])
-
+            dialogue_encodings.extend(encs[i] for i in range(len(encs)))
             joined_contexts = []
 
 
     if len(joined_contexts) > 0:
         logger.debug("[COMPUTE] - Got batch %d / %d" % (batch_total, batch_total))
         encs = compute_encodings(joined_contexts, model, model_compute_encoding, use_second_last_state)
-        for i in range(len(encs)):
-            dialogue_encodings.append(encs[i])
-
+        dialogue_encodings.extend(encs[i] for i in range(len(encs)))
     return dialogue_encodings
 
 if __name__ == "__main__":
@@ -176,7 +164,7 @@ if __name__ == "__main__":
     dialogue_encodings = main(args.model_prefix, args.dialogues, args.use_second_last_state)
 
     # Save encodings to disc
-    cPickle.dump(dialogue_encodings, open(args.output + '.pkl', 'w'))
+    cPickle.dump(dialogue_encodings, open(f'{args.output}.pkl', 'w'))
 
 
     #  THEANO_FLAGS=mode=FAST_COMPILE,floatX=float32 python compute_dialogue_embeddings.py tests/models/1462302387.69_testmodel tests/data/tvalid_contexts.txt Latent_Variable_Means --verbose --use-second-last-state

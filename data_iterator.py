@@ -53,9 +53,9 @@ def add_random_variables_to_batch(state, rng, batch, prev_batch, evaluate_mode):
 
         # Make sure we also sample at the beginning of the utterance, and that we stop appropriately at the end
         if len(eos_indices) > 0:
-            if not eos_indices[0] == 0:
+            if eos_indices[0] != 0:
                 eos_indices = [0] + eos_indices
-            if not eos_indices[-1] == batch['x'].shape[0]:
+            if eos_indices[-1] != batch['x'].shape[0]:
                 eos_indices = eos_indices + [batch['x'].shape[0]]
         else:
             eos_indices = [0] + [batch['x'].shape[0]]
@@ -73,8 +73,14 @@ def add_random_variables_to_batch(state, rng, batch, prev_batch, evaluate_mode):
         # overlaps with the first utterance in the current batch, then we need to copy over 
         # the random variables from the last utterance in the last batch to remain consistent.
         if prev_batch:
-            if ('x_reset' in prev_batch) and (not numpy.sum(numpy.abs(prev_batch['x_reset'])) < 1) \
-              and (('ran_var_gaussian_constutterance' in prev_batch) or ('ran_var_uniform_constutterance' in prev_batch)):
+            if (
+                'x_reset' in prev_batch
+                and numpy.sum(numpy.abs(prev_batch['x_reset'])) >= 1
+                and (
+                    ('ran_var_gaussian_constutterance' in prev_batch)
+                    or ('ran_var_uniform_constutterance' in prev_batch)
+                )
+            ):
                 prev_ran_gaussian_vector = prev_batch['ran_var_gaussian_constutterance'][-1,idx,:]
                 prev_ran_uniform_vector = prev_batch['ran_var_uniform_constutterance'][-1,idx,:]
                 if len(eos_indices) > 1:
@@ -91,14 +97,13 @@ def add_random_variables_to_batch(state, rng, batch, prev_batch, evaluate_mode):
     batch['ran_var_uniform_constutterance'] = Ran_Var_Uniform_ConstUtterance
 
     # Create word drop mask based on 'decoder_drop_previous_input_tokens_rate' option:
-    if evaluate_mode:
-        batch['ran_decoder_drop_mask'] = numpy.ones((batch['x'].shape[0], batch['x'].shape[1]), dtype='float32')
+    if not evaluate_mode and state.get(
+        'decoder_drop_previous_input_tokens', False
+    ):
+        ran_drop = rng.uniform(size=(batch['x'].shape[0], batch['x'].shape[1]))
+        batch['ran_decoder_drop_mask'] = (ran_drop <= state['decoder_drop_previous_input_tokens_rate']).astype('float32')
     else:
-        if state.get('decoder_drop_previous_input_tokens', False):
-            ran_drop = rng.uniform(size=(batch['x'].shape[0], batch['x'].shape[1]))
-            batch['ran_decoder_drop_mask'] = (ran_drop <= state['decoder_drop_previous_input_tokens_rate']).astype('float32')
-        else:
-            batch['ran_decoder_drop_mask'] = numpy.ones((batch['x'].shape[0], batch['x'].shape[1]), dtype='float32')
+        batch['ran_decoder_drop_mask'] = numpy.ones((batch['x'].shape[0], batch['x'].shape[1]), dtype='float32')
 
 
     return batch
@@ -106,7 +111,7 @@ def add_random_variables_to_batch(state, rng, batch, prev_batch, evaluate_mode):
 
 def create_padded_batch(state, rng, x, force_end_of_utterance_token = False):
     # If flag 'do_generate_first_utterance' is off, then zero out the mask for the first utterance.
-    do_generate_first_utterance = True  
+    do_generate_first_utterance = True
     if 'do_generate_first_utterance' in state:
         if state['do_generate_first_utterance'] == False:
             do_generate_first_utterance = False
@@ -147,7 +152,7 @@ def create_padded_batch(state, rng, x, force_end_of_utterance_token = False):
     mx += 1
 
     n = state['bs']
-    
+
     X = numpy.zeros((mx, n), dtype='int32')
     Xmask = numpy.zeros((mx, n), dtype='float32') 
 
@@ -168,9 +173,9 @@ def create_padded_batch(state, rng, x, force_end_of_utterance_token = False):
 
         # Make sure end-of-utterance symbol is at beginning of dialogue.
         # This will force model to generate first utterance too
-        if not x[0][idx][0] == state['eos_sym']:
+        if x[0][idx][0] != state['eos_sym']:
             X[:dialogue_length+1, idx] = [state['eos_sym']] + x[0][idx][:dialogue_length]
-            dialogue_length = dialogue_length + 1
+            dialogue_length += 1
         else:
             X[:dialogue_length, idx] = x[0][idx][:dialogue_length]
 
@@ -179,7 +184,7 @@ def create_padded_batch(state, rng, x, force_end_of_utterance_token = False):
 
         # Set the number of predictions == sum(Xmask), for cost purposes, minus one (to exclude first eos symbol)
         num_preds += dialogue_length - 1
-        
+
         # Mark the end of phrase
         if len(x[0][idx]) < mx:
             if force_end_of_utterance_token:
@@ -213,19 +218,18 @@ def create_padded_batch(state, rng, x, force_end_of_utterance_token = False):
 
             if np.sum(Xmask[:, idx]) < 2.0:
                 Xmask[:, idx] = 0.
-        
+
     if do_generate_first_utterance:
         assert num_preds == numpy.sum(Xmask) - numpy.sum(Xmask[0, :])
 
-    batch = {'x': X,                                                 \
-             'x_reversed': X_reversed,                               \
-             'x_mask': Xmask,                                        \
-             'num_preds': num_preds,                                 \
-             'num_dialogues': len(x[0]),                             \
-             'max_length': max_length                                \
-            }
-
-    return batch
+    return {
+        'x': X,
+        'x_reversed': X_reversed,
+        'x_mask': Xmask,
+        'num_preds': num_preds,
+        'num_dialogues': len(x[0]),
+        'max_length': max_length,
+    }
 
 class Iterator(SSIterator):
     def __init__(self, dialogue_file, batch_size, **kwargs):
@@ -418,12 +422,12 @@ def get_train_iterator(state):
 def get_test_iterator(state):
     assert 'test_dialogues' in state
 
-    test_data = Iterator(
+    return Iterator(
         state.get('test_dialogues'),
         int(state['bs']),
         state=state,
         seed=state['seed'],
         use_infinite_loop=False,
         max_len=state.get('max_len', -1),
-        evaluate_mode=True)
-    return test_data
+        evaluate_mode=True,
+    )

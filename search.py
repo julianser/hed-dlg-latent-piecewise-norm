@@ -25,7 +25,7 @@ def sample_wrapper(sample_logic):
 
         if verbose:
             logger.info("Starting {} : {} start sequences in total".format(sampler.name, len(contexts)))
-         
+
         context_samples = []
         context_costs = []
 
@@ -42,18 +42,18 @@ def sample_wrapper(sample_logic):
                 utterance_ids = sampler.model.words_to_indices(context_utterances.split())
                 # Add eos tokens
                 if len(utterance_ids) > 0:
-                    if not utterance_ids[0] == sampler.model.eos_sym:
+                    if utterance_ids[0] != sampler.model.eos_sym:
                         utterance_ids = [sampler.model.eos_sym] + utterance_ids
-                    if not utterance_ids[-1] == sampler.model.eos_sym:
+                    if utterance_ids[-1] != sampler.model.eos_sym:
                         utterance_ids += [sampler.model.eos_sym]
-                
+
                 else:
                     utterance_ids = [sampler.model.eos_sym]
 
                 joined_context += utterance_ids
 
             samples, costs = sample_logic(sampler, joined_context, **kwargs) 
-             
+
             # Convert back indices to list of words
             converted_samples = map(lambda sample : sampler.model.indices_to_words(sample, exclude_end_sym=kwargs.get('n_turns', 1) == 1), samples)
             # Join the list of words
@@ -68,6 +68,7 @@ def sample_wrapper(sample_logic):
             context_costs.append(costs)
 
         return context_samples, context_costs
+
     return sample_apply
 
 class Sampler(object):

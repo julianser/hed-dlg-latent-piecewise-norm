@@ -92,15 +92,8 @@ def extrema_score(fileone, filetwo, w2v):
     for i in range(len(r1)):
         tokens1 = r1[i].strip().split(" ")
         tokens2 = r2[i].strip().split(" ")
-        X= []
-        for tok in tokens1:
-            if tok in w2v:
-                X.append(w2v[tok])
-        Y = []
-        for tok in tokens2:
-            if tok in w2v:
-                Y.append(w2v[tok])
-
+        X = [w2v[tok] for tok in tokens1 if tok in w2v]
+        Y = [w2v[tok] for tok in tokens2 if tok in w2v]
         # if none of the words have embeddings in ground truth, skip
         if np.linalg.norm(X) < 0.00000000001:
             continue
