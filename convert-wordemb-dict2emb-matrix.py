@@ -40,9 +40,9 @@ alphabet = 'abcdefghijklmnopqrstuvwxyz'
 
 def safe_pickle(obj, filename):
     if os.path.isfile(filename):
-        logger.info("Overwriting %s." % filename)
+        logger.info(f"Overwriting {filename}.")
     else:
-        logger.info("Saving to %s." % filename)
+        logger.info(f"Saving to {filename}.")
 
     with open(filename, 'wb') as f:
         cPickle.dump(obj, f, protocol=cPickle.HIGHEST_PROTOCOL)

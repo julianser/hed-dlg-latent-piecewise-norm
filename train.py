@@ -60,10 +60,7 @@ measures = ["train_cost", "train_misclass", "train_kl_divergence_cost", "train_p
 
 
 def init_timings():
-    timings = {}
-    for m in measures:
-        timings[m] = []
-    return timings
+    return {m: [] for m in measures}
 
 def save(model, timings, train_iterator, post_fix = ''):
     print "Saving the model..."
@@ -601,8 +598,7 @@ def parse_args():
 
     parser.add_argument("--reinitialize-decoder-parameters", action='store_true', help="Can be used when resuming a model. If true, will initialize all parameters of the utterance decoder randomly instead of loading them from previous model.")
 
-    args = parser.parse_args()
-    return args
+    return parser.parse_args()
 
 if __name__ == "__main__":
     # Models only run with float32

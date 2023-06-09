@@ -21,10 +21,10 @@ logger = logging.getLogger('text2dict')
 
 def safe_pickle(obj, filename):
     if os.path.isfile(filename):
-        logger.info("Overwriting %s." % filename)
+        logger.info(f"Overwriting {filename}.")
     else:
-        logger.info("Saving to %s." % filename)
-    
+        logger.info(f"Saving to {filename}.")
+
     with open(filename, 'wb') as f:
         cPickle.dump(obj, f, protocol=cPickle.HIGHEST_PROTOCOL)
 
@@ -48,7 +48,7 @@ if args.dict != "":
     # Load external dictionary
     assert os.path.isfile(args.dict)
     vocab = dict([(x[0], x[1]) for x in cPickle.load(open(args.dict, "r"))])
-    
+
     # Check consistency
     assert '<unk>' in vocab
     assert '</s>' in vocab
@@ -72,8 +72,8 @@ else:
         if line_words[len(line_words)-1] != '</s>':
             line_words.append('</s>')
 
-        s = [x for x in line_words]
-        word_counter.update(s) 
+        s = list(line_words)
+        word_counter |= s 
 
     total_freq = sum(word_counter.values())
     logger.info("Total word frequency in dictionary %d " % total_freq) 
@@ -92,7 +92,7 @@ else:
     # Add other tokens to vocabulary in the order of their frequency
     i = 10
     for (word, count) in vocab_count:
-        if not word in vocab:
+        if word not in vocab:
             vocab[word] = i
             i += 1
 
@@ -135,10 +135,16 @@ for line, dialogue in enumerate(open(args.input, 'r')):
     # Add dialogue to corpus
     binarized_corpus.append(dialogue_word_ids)
 
-safe_pickle(binarized_corpus, args.output + ".dialogues.pkl")
+safe_pickle(binarized_corpus, f"{args.output}.dialogues.pkl")
 
 if args.dict == "":
-     safe_pickle([(word, word_id, freqs[word_id], df[word_id]) for word, word_id in vocab.items()], args.output + ".dict.pkl")
+    safe_pickle(
+        [
+            (word, word_id, freqs[word_id], df[word_id])
+            for word, word_id in vocab.items()
+        ],
+        f"{args.output}.dict.pkl",
+    )
 
 logger.info("Number of unknowns %d" % unknowns)
 logger.info("Number of terms %d" % num_terms)
